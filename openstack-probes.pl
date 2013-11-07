@@ -210,11 +210,11 @@ sub checkMysql {
             $config->{'status'}->{'Seconds_Behind_Master'}->{'samples'}++;
             $config->{'status'}->{'Seconds_Behind_Master'}->{'last'} = $slave_status->{'Seconds_Behind_Master'};
             if ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($slave_status->{'Seconds_Behind_Master'} >= $config->{'setup'}->{'mysql-CRIT'}) {
+                if ($slave_status->{'Seconds_Behind_Master'} >= $config->{'setup'}->{'mysql-CRIT'} || $slave_status->{'Seconds_Behind_Master'} eq 'NULL') {
                     nimLog(1, "Critical alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
-                    my $alert_string = $config->{'messages'}->{'SecondBehindCrit'}->{'text'},;
+                    my $alert_string = $config->{'messages'}->{'SecondBehindCrit'}->{'text'};
                     $alert_string =~ s/%SEC_BEHIND%/$slave_status->{'Seconds_Behind_Master'}/e;
-                    $alert_string .= " ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} samples)";
+                    $alert_string .= " ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} samples)"; 
                     nimAlarm( $config->{'messages'}->{'SecondBehindCrit'}->{'level'}, $alert_string, $sub_sys, $config->{'messages'}->{'SecondBehindCrit'}->{'supp_str'});
                 } else {
                     nimLog(1, "Warning alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
