@@ -1,0 +1,62 @@
+<setup>
+   loglevel = 0
+   logfile = openstack-probes.log
+   interval = 300
+   hostname =
+   port = 3306
+   username =
+   password =
+   CRITICAL = 1200
+   WARN = 600
+   rabbit-CRITICAL = 10
+   rabbit-WARN = 5
+   samples = 3
+   mysql_exec =
+   mysql_defaults_file = 
+   rabbitmq_cmd_line = 
+</setup>
+<suppression>
+   <[default]>
+      active = no
+      start = 00:00
+      end = 00:01
+   </[default]>
+</suppression>
+<messages> overwrite
+   <RabbitMQ_Crit>
+      text = One or more RabbitMQ queues are out of control %QUEUES%
+      level = 5
+   </RabbitMQ_Crit>
+   <RabbitMQ_Warn>
+      text = One or more RabbitMQ queues are starting to grow %QUEUES%
+      level = 4
+   </RabbitMQ_Warn>
+   <MysqlClient>
+      text = Cannot locate the mysql executable
+      level = 4
+   </MysqlClient>
+   <Slave_IO_Running>
+      text = The Slave IO Thread not running replicant.
+      level = 5
+   </Slave_IO_Running>
+   <Slave_SQL_Running>
+      text = The Slave SQL Thread not running on replicant
+      level = 5
+   </Slave_SQL_Running>
+   <SecondBehindWarn>
+      text = The slave is slightly behind the master. The slave is now %SEC_BEHIND% seconds behind the master.
+      level = 4
+   </SecondBehindWarn>
+   <SecondBehindCrit>
+      text = The slave is critically behind the master. The slave is now %SEC_BEHIND% seconds behind the master.
+      level = 5
+   </SecondBehindCrit>
+   <DatabaseConnection>
+      text = Cannot connect to slave database, please verify access settings.
+      level = 5
+   </DatabaseConnection>
+   <RabbitConnection>
+      text = Cannot connect to RabbitMQ-Server, please verify server is running.
+      level = 5
+   </RabbitConnection>
+</messages>
