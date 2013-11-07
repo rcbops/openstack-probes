@@ -6,9 +6,9 @@
    port = 3306
    username =
    password =
-   CRITICAL = 1200
-   WARN = 600
-   rabbit-CRITICAL = 10
+   mysql-CRIT = 1200
+   mysql-WARN = 600
+   rabbit-CRIT = 10
    rabbit-WARN = 5
    samples = 3
    mysql_exec =
@@ -23,14 +23,6 @@
    </[default]>
 </suppression>
 <messages> overwrite
-   <RabbitMQ_Crit>
-      text = One or more RabbitMQ queues are out of control %QUEUES%
-      level = 5
-   </RabbitMQ_Crit>
-   <RabbitMQ_Warn>
-      text = One or more RabbitMQ queues are starting to grow %QUEUES%
-      level = 4
-   </RabbitMQ_Warn>
    <MysqlClient>
       text = Cannot locate the mysql executable
       level = 4

@@ -1,7 +1,7 @@
 #!$NIM_BIN/perl
 
 ###########################################################
-# I Stoled Rick's mysql replication probe and added to it.
+# I Stole Rick's mysql replication probe and added to it.
 # I hope you don't mind Rick.
 # Jake
 ###########################################################
@@ -15,7 +15,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.1';
+my $version = '0.4';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -49,22 +49,21 @@ sub checkRabbit {
     if ( -e '/etc/init.d/rabbitmq-server' ) {
         nimLog(1, "RabbitMQ detected. Checking status...");
         my @data = `$config->{'setup'}->{'rabbitmq_cmd_line'} list_queues 2>/dev/null`;
-        if ($? != 0) {
+        if ($? != 0 || !@data) {
+            nimLog(1, "RabbitMQ not reachable....Is the service running?");
             $config->{'status'}->{'rabbit'}->{'samples'}++;
             if ($config->{'status'}->{'rabbit'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                $config->{'status'}->{'RabbitConnection'}->{'nimalarm_id'} = nimAlarm( $config->{'messages'}->{'RabbitConnection'}->{'level'},
-                    $config->{'messages'}->{'RabbitConnection'}->{'text'}, $sub_sys, $config->{'messages'}->{'RabbitConnection'}->{'supp_str'});
-                nimLog(1, "Rabbit alarm id : ".$config->{'status'}->{'RabbitConnection'}->{'nimalarm_id'});
+                nimLog(1, "RabbitMQ not reachable....Max attempts reached. Creating an alert!");
+                nimAlarm( $config->{'messages'}->{'RabbitConnection'}->{'level'},
+                    $config->{'messages'}->{'RabbitConnection'}->{'text'},$sub_sys,$config->{'messages'}->{'RabbitConnection'}->{'supp_str'});
             }
             return;
         } else {
             $config->{'status'}->{'rabbit'}->{'samples'} = 0;
-            nimLog(3, "RabbitMQ connectivity alert clear");
-            $config->{'status'}->{'RabbitConnection'}->{'nimalarm_id'} = nimAlarm( NIML_CLEAR, 'RabbitMQ connection established',
-                $sub_sys, $config->{'messages'}->{'DatabaseConnection'}->{'supp_str'});
-            nimLog(3, "RabbitMQ clear id : ".$config->{'status'}->{'RabbitConnection'}->{'nimalarm_id'});
+            nimLog(1, "RabbitMQ Responded!!");
+            nimAlarm( NIML_CLEAR, 'RabbitMQ connection established',$sub_sys,$config->{'messages'}->{'RabbitConnection'}->{'supp_str'});
         }
-        nimLog(2, 'Returned '.scalar(@data).' lines from rabbitmqctl');
+        nimLog(1, 'Returned '.scalar(@data).' lines from rabbitmqctl');
         my $queues_list = {};
         foreach my $line (@data) {
             my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
@@ -72,31 +71,27 @@ sub checkRabbit {
             $queues_list->{$key} = $value;
         }
         while ( my ($key, $value) = each(%$queues_list) ) {
-            if ($queues_list->{$key} >= $config->{'setup'}->{'Rabbit-WARN'}) {
+            if ( $value >= $config->{'setup'}->{'rabbit-WARN'}) {
+                if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
                 $config->{'status'}->{$key}->{'samples'}++;
-                $config->{'status'}->{$key}->{'last'} = $queues_list->{$key};
+                $config->{'status'}->{$key}->{'last'} = $value;
                 if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                    if ($queues_list->{$key} >= $config->{'setup'}->{'Rabbit-CRITICAL'}) {
-                        nimLog(1, "Critical alert on message queue $key ($queues_list->{$key})");
-                        my $alert_string = "RabbitMQ queue $key is not critically backed up with $queues_list->{$key} messages pending after $config->{'status'}->{$key}->{'samples'} samples.",;
-                        $config->{'status'}->{$key}->{'nimalarm_id'} = nimAlarm( $config->{'messages'}->{'RabbitMQ_Crit'}->{'level'},
-                            $alert_string, $sub_sys, $config->{'messages'}->{'RabbitMQ_Crit'}->{'supp_str'});
+                    if ($value >= $config->{'setup'}->{'rabbit-CRIT'}) {
+                        nimLog(1, "Critical alert on message queue $key with queue length $value");
+                        my $alert_string = "[CRITICAL] RabbitMQ queue $key is not processing. Queue $key has $value messages pending.";
+                        nimAlarm( 5,$alert_string,$sub_sys,$config->{'messages'}->{'RabbitMQ_Crit'}->{'supp_str'});
                     } else {
-                        nimLog(1, "Warning alert on message queue $key ($queues_list->{$key})");
-                        my $alert_string = "RabbitMQ queue $key is slightly backed up with $queues_list->{$key} messages pending after $config->{'status'}->{$key}->{'samples'} samples.",;
-                        $config->{'status'}->{$key}->{'nimalarm_id'} = nimAlarm(
-                            $config->{'messages'}->{'RabbitMQ_Warn'}->{'level'}, $alert_string, $sub_sys,
-                            $config->{'messages'}->{'RabbitMQ_Warn'}->{'supp_str'});
+                        nimLog(1, "Warning alert on message queue $key with queue length $value");
+                        my $alert_string = "[WARNING] RabbitMQ queue $key is not processing. Queue $key has $value messages pending.";
+                        nimAlarm( 4,$alert_string,$sub_sys,$config->{'messages'}->{'RabbitMQ_Warn'}->{'supp_str'});
                     }
                 }
             } else {
                 $config->{'status'}->{$key}->{'samples'} = 0;
-                $config->{'status'}->{$key}->{'last'} = $queues_list->{$key};
-                nimLog(3, "Clearing alert on RabbitMQ queue $key ($queues_list->{$key})");
+                $config->{'status'}->{$key}->{'last'} = $value;
+                nimLog(1, "Checking RabbitMQ queue $key queue length now $value");
                 my $alert_string = "RabbitMQ alert on queue $key has cleared";
-                $config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'} = nimAlarm(
-                    NIML_CLEAR, $alert_string, $sub_sys,
-                    $config->{'messages'}->{'RabbitMQ_Warn'}->{'supp_str'});
+                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,$config->{'messages'}->{'RabbitMQ_Warn'}->{'supp_str'});
             }
         }
     } else {
@@ -132,12 +127,10 @@ sub timeout {
     my $timestamp = time();
     if ($timestamp < $config->{'status'}->{'next_run'}) { return; }
     $config->{'status'}->{'next_run'} += $config->{'setup'}->{'interval'};
-    nimLog(3, "($config->{'status'}->{'next_run'}) interval expired - running");
-    #readConfig();
-    startQoS();
+    nimLog(1, "($config->{'status'}->{'next_run'}) interval expired - running");
     my $_s_active = suppression_active();
     if (defined($_s_active)) {
-        nimLog(2, "Suppression interval '$_s_active' active");
+        nimLog(1, "Suppression interval '$_s_active' active");
         return;
     }
     checkRabbit();
@@ -156,34 +149,22 @@ sub checkMysql {
             return;
         }
         if (!defined($config->{'setup'}->{'mysql_cmd_line'})) {
-        
-            $config->{'status'}->{'DatabaseConnection'}->{'nimalarm_id'} = nimAlarm(
-                $config->{'messages'}->{'DatabaseConnection'}->{'level'},
-                $config->{'messages'}->{'DatabaseConnection'}->{'text'},
-                $sub_sys,
+            nimLog(1, "Database connection error. Client not defined in config file.");
+            nimAlarm( $config->{'messages'}->{'DatabaseConnection'}->{'level'},$config->{'messages'}->{'DatabaseConnection'}->{'text'},$sub_sys,
                 $config->{'messages'}->{'DatabaseConnection'}->{'supp_str'});
-            nimLog(1, "Database connection alarm id : ".$config->{'status'}->{'DatabaseConnection'}->{'nimalarm_id'});
             return;
         }
         my @data = `$config->{'setup'}->{'mysql_cmd_line'} 2>/dev/null`;
         if (!@data) {
-            $config->{'status'}->{'DatabaseConnection'}->{'nimalarm_id'} = nimAlarm(
-                $config->{'messages'}->{'DatabaseConnection'}->{'level'},
-                $config->{'messages'}->{'DatabaseConnection'}->{'text'},
-                $sub_sys,
+            nimAlarm( $config->{'messages'}->{'DatabaseConnection'}->{'level'},$config->{'messages'}->{'DatabaseConnection'}->{'text'},$sub_sys,
                 $config->{'messages'}->{'DatabaseConnection'}->{'supp_str'});
-            nimLog(1, "Database alarm id : ".$config->{'status'}->{'DatabaseConnection'}->{'nimalarm_id'});
+            nimLog(1,$config->{'messages'}->{'DatabaseConnection'}->{'text'});
             return;
         } else {
-            nimLog(3, "Database connectivity alert clear");
-            $config->{'status'}->{'DatabaseConnection'}->{'nimalarm_id'} = nimAlarm( 
-                NIML_CLEAR, 
-                'Database connection established',
-                $sub_sys, 
-                $config->{'messages'}->{'DatabaseConnection'}->{'supp_str'});
-            nimLog(3, "Database clear id : ".$config->{'status'}->{'DatabaseConnection'}->{'nimalarm_id'});
+            nimLog(1, "Connecting to database.....Success!");
+            nimAlarm( NIML_CLEAR,'Database connection established',$sub_sys,$config->{'messages'}->{'DatabaseConnection'}->{'supp_str'});
         }
-        nimLog(2, 'Returned '.scalar(@data).' lines from mysql query');
+        nimLog(1, 'Returned '.scalar(@data).' lines from mysql query');
         my $slave_status = {};
         foreach my $line (@data) {
             my ($key, $value) = $line =~ /^\s*(\S+):\s(\S*)$/;
@@ -193,123 +174,69 @@ sub checkMysql {
         if ($slave_status->{'Slave_IO_Running'} =~ /no/i) {
             $config->{'status'}->{'Slave_IO_Running'}->{'samples'}++;
             $config->{'status'}->{'Slave_IO_Running'}->{'last'} = $slave_status->{'Slave_IO_Running'};
-        
             if ($config->{'status'}->{'Slave_IO_Running'} >= $config->{'samples'}) {
                 nimLog(1, "Alerting Slave_IO_Running status");
-            
-                $config->{'status'}->{'Slave_IO_Running'}->{'nimalarm_id'} = nimAlarm(
-                    $config->{'messages'}->{'Slave_IO_Running'}->{'level'},
+                nimAlarm( $config->{'messages'}->{'Slave_IO_Running'}->{'level'},
                     $config->{'messages'}->{'Slave_IO_Running'}->{'text'}." ($config->{'status'}->{'Slave_IO_Running'}->{'samples'} samples) ",
-                    $sub_sys,
-                    $config->{'messages'}->{'Slave_IO_Running'}->{'supp_str'});
-                nimLog(1, "Slave IO Running alarm id: ".$config->{'status'}->{'Slave_IO_Running'}->{'nimalarm_id'});
+                    $sub_sys,$config->{'messages'}->{'Slave_IO_Running'}->{'supp_str'});
             }
 
         } elsif ($slave_status->{'Slave_IO_Running'} =~ /yes/i) {
-            nimLog(3, 'Clearing Slave_IO_Running alert status');
-        
+            nimLog(1, 'Slave_IO_Running status....running');
             $config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0;
             $config->{'status'}->{'Slave_IO_Running'}->{'last'} = $slave_status->{'Slave_IO_Running'};
-        
-            $config->{'status'}->{'Slave_IO_Running'}->{'nimalarm_id'} = nimAlarm(
-                NIML_CLEAR, 
-                'Slave_IO_Running confirmed', 
-                $sub_sys,
-                $config->{'messages'}->{'Slave_IO_Running'}->{'supp_str'});
-            nimLog(3, "Slave SQL Running clear id: ".$config->{'status'}->{'Slave_IO_Running'}->{'nimalarm_id'});
-        
+            nimAlarm( NIML_CLEAR, 'Slave_IO_Running confirmed', $sub_sys, $config->{'messages'}->{'Slave_IO_Running'}->{'supp_str'});
         } else {
             nimLog(1, "Invalid value detected in 'Slave_IO_Running' : ($slave_status->{'Slave_IO_Running'})");
         }
         if ($slave_status->{'Slave_SQL_Running'} =~ /no/i) {
-            nimLog(3, 'Incrementing Slave_SQL_Running sample count');
             $config->{'status'}->{'Slave_SQL_Running'}->{'samples'}++;
             $config->{'status'}->{'Slave_SQL_Running'}->{'last'} = $slave_status->{'Slave_SQL_Running'};
             if ($config->{'status'}->{'Slave_SQL_Running'} >= $config->{'samples'}) {
-                nimLog(2, "Alerting Slave_SQL_Running status");
-                $config->{'status'}->{'Slave_SQL_Running'}->{'nimalarm_id'} = nimAlarm(
-                    $config->{'messages'}->{'Slave_SQL_Running'}->{'level'},
+                nimLog(1, "Alerting Slave_SQL_Running status");
+                nimAlarm( $config->{'messages'}->{'Slave_SQL_Running'}->{'level'},
                     $config->{'messages'}->{'Slave_SQL_Running'}->{'text'}." ($config->{'status'}->{'Slave_SQL_Running'}->{'samples'} samples) ",
-                    $sub_sys,
-                    $config->{'messages'}->{'Slave_SQL_Running'}->{'supp_str'});
-                nimLog(1, "Slave SQL Running alarm id: ".$config->{'status'}->{'Slave_SQL_Running'}->{'nimalarm_id'});
+                    $sub_sys, $config->{'messages'}->{'Slave_SQL_Running'}->{'supp_str'});
             }
         } elsif ($slave_status->{'Slave_SQL_Running'} =~ /yes/i) {
-            nimLog(3, 'Clearing Slave_SQL_Running alert status');
+            nimLog(1, 'Slave_SQL_Running status....running');
             $config->{'status'}->{'Slave_SQL_Running'}->{'samples'} = 0;
             $config->{'status'}->{'Slave_SQL_Running'}->{'last'} = $slave_status->{'Slave_SQL_Running'};
-            $config->{'status'}->{'Slave_SQL_Running'}->{'nimalarm_id'} = nimAlarm(
-                NIML_CLEAR, 
-                "Slave_SQL_Running is running", 
-                $sub_sys, 
-                $config->{'messages'}->{'Slave_SQL_Running'}->{'supp_str'});
-            nimLog(3, "Slave SQL Running clear id: ".$config->{'status'}->{'Slave_SQL_Running'}->{'nimalarm_id'});
+            nimAlarm( NIML_CLEAR, "Slave_SQL_Running is running", $sub_sys, $config->{'messages'}->{'Slave_SQL_Running'}->{'supp_str'});
         } else {
             nimLog(1, "Invalid value detected in 'Slave_SQL_Running' : ($slave_status->{'Slave_SQL_Running'})");
         }
-        if ($slave_status->{'Seconds_Behind_Master'} eq 'NULL') {
-            return;
-        }
-        if ($slave_status->{'Seconds_Behind_Master'} >= $config->{'setup'}->{'WARN'}) {
+        if ($slave_status->{'Seconds_Behind_Master'} >= $config->{'setup'}->{'mysql-WARN'} || $slave_status->{'Seconds_Behind_Master'} eq 'NULL') {
             $config->{'status'}->{'Seconds_Behind_Master'}->{'samples'}++;
             $config->{'status'}->{'Seconds_Behind_Master'}->{'last'} = $slave_status->{'Seconds_Behind_Master'};
             if ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($slave_status->{'Seconds_Behind_Master'} >= $config->{'setup'}->{'CRITICAL'}) {
-                    nimLog(1, "Warning alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
+                if ($slave_status->{'Seconds_Behind_Master'} >= $config->{'setup'}->{'mysql-CRIT'}) {
+                    nimLog(1, "Critical alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
                     my $alert_string = $config->{'messages'}->{'SecondBehindCrit'}->{'text'},;
                     $alert_string =~ s/%SEC_BEHIND%/$slave_status->{'Seconds_Behind_Master'}/e;
                     $alert_string .= " ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} samples)";
-                    $config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'} = nimAlarm(
-                        $config->{'messages'}->{'SecondBehindCrit'}->{'level'},
-                        $alert_string,
-                        $sub_sys,
-                        $config->{'messages'}->{'SecondBehindCrit'}->{'supp_str'});
-                    nimLog(1, "Seconds Behind Master warning alarm id : ".$config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'});
+                    nimAlarm( $config->{'messages'}->{'SecondBehindCrit'}->{'level'}, $alert_string, $sub_sys, $config->{'messages'}->{'SecondBehindCrit'}->{'supp_str'});
                 } else {
-                    nimLog(1, "Critical alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
+                    nimLog(1, "Warning alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
                     my $alert_string = $config->{'messages'}->{'SecondBehindWarn'}->{'text'};
                     $alert_string =~ s/%SEC_BEHIND%/$slave_status->{'Seconds_Behind_Master'}/e;
                     $alert_string .= " ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} samples)";
-                    $config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'} = nimAlarm(
-                        $config->{'messages'}->{'SecondBehindWarn'}->{'level'},
-                        $alert_string,
-                        $sub_sys,
-                        $config->{'messages'}->{'SecondBehindWarn'}->{'supp_str'});
-                    nimLog(1, "Seconds Behind Master critical alarm id : ".$config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'});
+                    nimAlarm( $config->{'messages'}->{'SecondBehindWarn'}->{'level'}, $alert_string, $sub_sys, $config->{'messages'}->{'SecondBehindWarn'}->{'supp_str'});
                 }
             }
         } else {
             $config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} = 0;
             $config->{'status'}->{'Seconds_Behind_Master'}->{'last'} = $slave_status->{'Seconds_Behind_Master'};
-            nimLog(3, "Clearing alert on 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
+            nimLog(1, "Checking 'Seconds_Behind_Master' ($slave_status->{'Seconds_Behind_Master'})");
             my $alert_string = $config->{'messages'}->{'SecondBehindWarn'}->{'text'};
             $alert_string =~ s/%SEC_BEHIND%/$slave_status->{'Seconds_Behind_Master'}/e;
             $alert_string .= " ($config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} samples)";
-            $config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'} = nimAlarm(
-                NIML_CLEAR,
-                $alert_string,
-                $sub_sys,
-                $config->{'messages'}->{'SecondBehindWarn'}->{'supp_str'});
-            nimLog(3, "Seconds Behind Master clear id : ".$config->{'status'}->{'Seconds_Behind_Master'}->{'nimalarm_id'});
+            nimAlarm( NIML_CLEAR, $alert_string, $sub_sys, $config->{'messages'}->{'SecondBehindWarn'}->{'supp_str'});
         }
     } else {
         nimLog(1, "Mysql NOT detected. Skipping.");
         return;
     }
-    return;
-}
-
-sub startQoS {
-    my $now    = shift || time();
-    my $source = nimGetVarStr(NIMV_ROBOTNAME);
-    nimQoSMessage( "OPENSTACK-PROBES", $source, $config->{'setup'}->{'hostname'}, $now, "Start Run", 0, $config->{'setup'}->{'interval'}, -1);
-    return;
-}
-
-sub endQoS {
-    my $now    = shift || time();
-    my $source = nimGetVarStr(NIMV_ROBOTNAME);
-    nimQoSMessage( "OPENSTACK-PROBES", $source, $config->{'setup'}->{'hostname'}, $now, "Run Complete", 0, $config->{'setup'}->{'interval'}, -1);
     return;
 }
 
@@ -320,14 +247,14 @@ sub test_exec_line {
         return undef;
     }
 
-    nimLog(3, "exec_line : ".$_exec_line);
+    nimLog(1, "exec_line : ".$_exec_line);
     # the exec lines should be 0 for successful query - 1 for auth failure,
     # -1 for unspecific failures, and ($? >> 8) gives the code for other 
     # failures.
     my @_results = `$_exec_line`;
     if ($? != 0) {
         my $err_code = ($? >> 8);
-        nimLog(2, "Exec failure ($err_code)");
+        nimLog(1, "Exec failure ($err_code)");
         return $err_code;
     }
 
@@ -339,7 +266,7 @@ sub test_exec_line {
 
     foreach my $line (@_results) {
         if ($line =~ "Slave_IO") {
-            nimLog(3, "mysql query succeeded");
+            nimLog(1, "mysql query succeeded");
             return 0;
         }
     }
@@ -366,7 +293,7 @@ sub initialize_mysql_exec {
             return undef;
         } else {
             my $_exec_path = $_exec[0];
-            nimLog(2, "Located mysql executable: '$_exec_path'");
+            nimLog(1, "Located mysql executable: '$_exec_path'");
             $config->{'setup'}->{'mysql_exec'} = $_exec_path;
             
             $config->{'status'}->{'MysqlClient'}->{'nimalarm_id'} = nimAlarm(
@@ -374,7 +301,7 @@ sub initialize_mysql_exec {
                 $config->{'messages'}->{'MysqlClient'}->{'text'},
                 $sub_sys, 
                 $config->{'messages'}->{'MysqlClient'}->{'supp_str'});
-            nimLog(3, "Mysql execution clear id : ".$config->{'status'}->{'MysqlClient'}->{'nimalarm_id'});
+            nimLog(1, "Mysql execution clear id : ".$config->{'status'}->{'MysqlClient'}->{'nimalarm_id'});
         }
     }
     
@@ -401,7 +328,7 @@ sub initialize_mysql_exec {
     
     my $loops = 2**(scalar(keys(%_params)));
     for (my $i = 0; $i < $loops; $i++) {
-        nimLog(4, "exec iteration $i");
+        nimLog(1, "exec iteration $i");
         my $cmd_line = "$config->{'setup'}->{'mysql_exec'}";
 
         my $shift = 0;
@@ -423,7 +350,6 @@ sub initialize_mysql_exec {
 }
 
 sub readConfig {
-    nimQoSDefinition( 'OPENSTACK-PROBES', 'OPENSTACK', 'Health Check Info For RPC Environment', 'Seconds', 's', 0, 0);
     nimLog(1, "'$prgname' : Reading Config File");
     $config       = Nimbus::CFG->new("$prgname.cfg");    
     my $loglevel  = $options{'d'} || $config->{'setup'}->{'loglevel'} || 0;
@@ -431,8 +357,10 @@ sub readConfig {
     nimLogSet($logfile, $prgname, $loglevel, 0);
     if (!defined($config->{'setup'}->{'interval'})) { $config->{'setup'}->{'interval'} = 300; }
     if (!defined($config->{'setup'}->{'samples'})) { $config->{'setup'}->{'samples'} = 3; }
-    if (!defined($config->{'setup'}->{'CRITICAL'})) { $config->{'setup'}->{'CRITICAL'} = 600; }
-    if (!defined($config->{'setup'}->{'WARN'})) { $config->{'setup'}->{'WARN'} = 300; }
+    if (!defined($config->{'setup'}->{'mysql-CRIT'})) { $config->{'setup'}->{'mysql-CRIT'} = 600; }
+    if (!defined($config->{'setup'}->{'rabbit-CRIT'})) { $config->{'setup'}->{'rabbit-CRIT'} = 10; }
+    if (!defined($config->{'setup'}->{'mysql-WARN'})) { $config->{'setup'}->{'mysql-WARN'} = 300; }
+    if (!defined($config->{'setup'}->{'rabbit-WARN'})) { $config->{'setup'}->{'rabbit-WARN'} = 5; }
     if (!defined($config->{'setup'}->{'mysql_defaults_file'}) || ($config->{'setup'}->{'mysql_defaults_file'} eq '')) {
         if ( -e '/root/.my.cnf') { $config->{'setup'}->{'mysql_defaults_file'} = '/root/.my.cnf'; }
     } else {
@@ -443,6 +371,26 @@ sub readConfig {
         }
     }
 }
+sub init_setup {
+    readConfig();
+    $config->{'status'}->{'next_run'} = time(); 
+    $config->{'status'}->{'rabbit'}->{'samples'} = 0;
+    $config->{'status'}->{'Slave_IO_Running'}->{'last'} = 0; 
+    $config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0; 
+    $config->{'status'}->{'Slave_SQL_Running'}->{'last'} = 0; 
+    $config->{'status'}->{'Slave_SQL_Running'}->{'samples'} = 0; 
+    $config->{'status'}->{'Seconds_Behind_Master'}->{'last'} = 0; 
+    $config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} = 0; 
+    $config->{'messages'}->{'MysqlClient'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/noclient"); 
+    $config->{'messages'}->{'Slave_IO_Running'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/slave_IO"); 
+    $config->{'messages'}->{'Slave_SQL_Running'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/slave_SQL"); 
+    $config->{'messages'}->{'SecondBehindWarn'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/secs_behind"); 
+    $config->{'messages'}->{'SecondBehindCrit'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/secs_behind"); 
+    $config->{'messages'}->{'DatabaseConnection'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/DatabaseConnection"); 
+    $config->{'messages'}->{'RabbitConnection'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/RabbitConnection"); 
+    $config->{'messages'}->{'RabbitMQ_Crit'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/RabbitMQ_Crit"); 
+    $config->{'messages'}->{'RabbitMQ_Warn'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/RabbitMQ_Warn"); 
+}
 
 sub ctrlc {
     exit;
@@ -450,26 +398,12 @@ sub ctrlc {
 
 getopts( "d:l:i:", \%options );
 $SIG{INT} = \&ctrlc;
-readConfig();
-$config->{'status'}->{'next_run'} = time(); 
-$config->{'status'}->{'Slave_IO_Running'}->{'last'} = 0; 
-$config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0; 
-$config->{'status'}->{'Slave_SQL_Running'}->{'last'} = 0; 
-$config->{'status'}->{'Slave_SQL_Running'}->{'samples'} = 0; 
-$config->{'status'}->{'Seconds_Behind_Master'}->{'last'} = 0; 
-$config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} = 0; 
-$config->{'messages'}->{'MysqlClient'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/noclient"); 
-$config->{'messages'}->{'Slave_IO_Running'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/slave_IO"); 
-$config->{'messages'}->{'Slave_SQL_Running'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/slave_SQL"); 
-$config->{'messages'}->{'SecondBehindWarn'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/secs_behind"); 
-$config->{'messages'}->{'SecondBehindCrit'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/secs_behind"); 
-$config->{'messages'}->{'DatabaseConnection'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/DatabaseConnection"); 
-$config->{'messages'}->{'RabbitConnection'}->{'supp_str'} = nimSuppToStr(0, 0, 0, "$prgname/RabbitConnection"); 
+init_setup();
 my $sess = Nimbus::Session->new("$prgname");
-$sess->setInfo($version, "Rackspace IT Hosting");
+$sess->setInfo($version, "Rackspace The Open Cloud Company");
 
-if ($sess->server(NIMPORT_ANY, \&timeout, \&readConfig) == NIME_OK) {
-    nimLog( 1, "server session is created" );
+if ($sess->server(NIMPORT_ANY, \&timeout, \&init_setup) == NIME_OK) {
+    nimLog( 0, "server session is created" );
 } else {
     nimLog( 0, "unable to create server session" );
     exit(1);
@@ -478,4 +412,4 @@ if ($sess->server(NIMPORT_ANY, \&timeout, \&readConfig) == NIME_OK) {
 $sess->dispatch();
 nimLog(0, "Received STOP, terminating program");
 nimLog(0, "Exiting program" );
-exit;
+exit(0);
