@@ -16,6 +16,7 @@
    rabbitmq_cmd_line = 
    lvm-cmd-line =
    volume-name = cinder-volumes
+   volume-alarm = 10
 </setup>
 <suppression>
    <[default]>
