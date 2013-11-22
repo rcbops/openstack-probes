@@ -15,7 +15,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.4';
+my $version = '0.6';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -101,6 +101,59 @@ sub checkRabbit {
 sub checkNova {
     if ( -e '/usr/bin/nova-manage' ) {
         nimLog(1, "Nova-Manage detected. Checking status...");
+        my @data = `/usr/bin/nova-manage service list 2>/dev/null`;
+        my $host = `hostname`;
+        chomp($host);
+        if ($? != 0 || !@data) {
+            nimLog(1, "Something is wrong!!! Nova-manage did not respond correctly.");
+            $config->{'status'}->{'nova'}->{'samples'}++;
+            if ($config->{'status'}->{'nova'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'ststus'}->{'nova'}->{'triggered'} == 0){
+                    nimLog(1, "Nova-manage not responding....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'NovaConnection'}->{'level'},$config->{'messages'}->{'NovaConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"novaconnect"));
+                    $config->{'ststus'}->{'nova'}->{'triggered'} = 1;
+                }
+            }
+            return;
+        } else {
+            $config->{'status'}->{'rabbit'}->{'samples'} = 0;
+            if ($config->{'ststus'}->{'nova'}->{'triggered'} == 1){
+                nimLog(1, "Nova-manage Responded!!");
+                nimAlarm( NIML_CLEAR, 'Nova-manage has started responding',$sub_sys,nimSuppToStr(0,0,0,"novaconnect"));
+                $config->{'ststus'}->{'nova'}->{'triggered'} = 0;
+            }
+        }
+        nimLog(1, 'Returned '.scalar(@data).' lines from nova-manage');
+        my $service_list = {};
+        shift @data;
+        foreach my $line (@data) {
+            my @values = split(' ',$line);
+            if ((@values[1] eq $host) and (@values[3] eq 'enabled')){
+                $service_list->{$values[0]} = $values[4];
+            }
+        }
+        while ( my ($key, $value) = each(%$service_list) ) {
+            if ( $value eq 'XXX' ) {
+                if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
+                $config->{'status'}->{$key}->{'samples'}++;
+                if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                    if ($config->{'ststus'}->{'nova'}->{'triggered'} == 0){
+                        nimLog(1, "Critical alert on nova service $key");
+                        my $alert_string = "[CRITICAL] Nova Service $key is not checking in. Please investigate.";
+                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"novaservice"));
+                        $config->{'ststus'}->{'nova'}->{'triggered'} = 1;
+                    }
+                }
+            } else {
+                $config->{'status'}->{$key}->{'samples'} = 0;
+                if ($config->{'ststus'}->{'nova'}->{'triggered'} == 1){
+                    nimLog(1, "Nova service $key has checked in.");
+                    my $alert_string = "Nova Service ($key) Alert clear";
+                    nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"novaservice"));
+                    $config->{'ststus'}->{'nova'}->{'triggered'} = 0;
+               }
+            }
+        }
     } else {
         nimLog(1, "Nova-Manage NOT detected. Skipping.");
     }
@@ -114,35 +167,35 @@ sub checkNeutron {
     }
 }
 
-sub checkKeepalived {
-    if ( -e '/etc/init.d/keepalived' ) {
-        nimLog(1, "Keepalived detected. Checking status...");
-    } else {
-        nimLog(1, "Keepalived NOT detected. Skipping.");
-    }
-}
 sub checkcinder {
     my @vgcheck = `$config->{'setup'}->{'lvm-cmd-line'} $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-    if ($? != 0 ) {
+    if ($? == 0 ) {
         nimLog(1, "Cinder volume detected. Checking status...");
         my $vgSize = `vgs -o size --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
         my $vgFree = `vgs -o free --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-        if ($vgFree < (($vgSize/100)*$config->{'setup'}->{'volume-alarm'}) {
+        my $alarm = ($vgSize/100)*$config->{'setup'}->{'volume-alarm'};
+        if ( $vgFree < $alarm ) {
             if (!defined($config->{'status'}->{'volumeGroup'}->{'samples'})){$config->{'status'}->{'volumeGroup'}->{'samples'} = 0;};
-            $config->{'status'}->{$key}->{'samples'}++;
+            $config->{'status'}->{'volumeGroup'}->{'samples'}++;
             if ($config->{'status'}->{'volumeGroup'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                my $alert_string = "Warning Volume Group $config->{'setup'}->{'volume-name'} size is under $config->{'setup'}->{'volume-alarm'}\% of $vgSize";
-                nimLog(1, $alert_string);
-                nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+                if ($config->{'ststus'}->{'volumeGroup'}->{'triggered'} == 0){
+                    my $alert_string = "Warning Volume Group $config->{'setup'}->{'volume-name'} size is under $config->{'setup'}->{'volume-alarm'}\% of $vgSize";
+                    nimLog(1, $alert_string);
+                    nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+                    $config->{'ststus'}->{'volumeGroup'}->{'triggered'} = 1;
+                }
             } else {
                 $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
-                nimLog(1, $alert_string);
-                my $alert_string = "Volume Group alert has cleared";
-                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+                if ($config->{'ststus'}->{'volumeGroup'}->{'triggered'} == 1){
+                    my $alert_string = "Volume Group alert has cleared";
+                    nimLog(1, $alert_string);
+                    nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+                    $config->{'ststus'}->{'volumeGroup'}->{'triggered'} = 0;
+                }
            }     
         }
     } else {
-        nimLog(1, "Keepalived NOT detected. Skipping.");
+        nimLog(1, "Cinder volume NOT detected. Skipping.");
     }
 }
 
@@ -157,7 +210,6 @@ sub timeout {
         return;
     }
     checkRabbit();
-    checkKeepalived();
     checkMysql();
     checkNova();
     checkNeutron();
@@ -379,12 +431,22 @@ sub init_setup {
     readConfig();
     $config->{'status'}->{'next_run'} = time(); 
     $config->{'status'}->{'rabbit'}->{'samples'} = 0;
+    $config->{'ststus'}->{'rabbit'}->{'triggered'} = 0;
+    $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
+    $config->{'ststus'}->{'volumeGroup'}->{'triggered'} = 0;
+    $config->{'status'}->{'nova'}->{'samples'} = 0;
+    $config->{'ststus'}->{'nova'}->{'triggered'} = 0;
+    $config->{'status'}->{'neutron'}->{'samples'} = 0;
+    $config->{'ststus'}->{'neutron'}->{'triggered'} = 0;
     $config->{'status'}->{'Slave_IO_Running'}->{'last'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0; 
+    $config->{'ststus'}->{'Slave_IO_Running'}->{'triggered'} = 0;
     $config->{'status'}->{'Slave_SQL_Running'}->{'last'} = 0; 
     $config->{'status'}->{'Slave_SQL_Running'}->{'samples'} = 0; 
+    $config->{'ststus'}->{'Slave_SQL_Running'}->{'triggered'} = 0;
     $config->{'status'}->{'Seconds_Behind_Master'}->{'last'} = 0; 
     $config->{'status'}->{'Seconds_Behind_Master'}->{'samples'} = 0; 
+    $config->{'ststus'}->{'Seconds_Behind_Master'}->{'triggered'} = 0;
 }
 
 sub ctrlc {

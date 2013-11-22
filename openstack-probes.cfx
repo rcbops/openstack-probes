@@ -11,10 +11,10 @@
    rabbit-CRIT = 10
    rabbit-WARN = 5
    samples = 3
-   mysql_exec =
+   mysql_exec = /usr/bin/mysql
    mysql_defaults_file = 
-   rabbitmq_cmd_line = 
-   lvm-cmd-line =
+   rabbitmq_cmd_line = /usr/sbin/rabbitmqctl
+   lvm-cmd-line = /sbin/vgdisplay
    volume-name = cinder-volumes
    volume-alarm = 10
 </setup>
@@ -54,4 +54,8 @@
       text = Cannot connect to RabbitMQ-Server, please verify server is running.
       level = 5
    </RabbitConnection>
+   <NovaConnection>
+      text = Nova-manage not responding correctly. Please investigate.
+      level = 5
+   </NovaConnection>
 </messages>
