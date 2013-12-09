@@ -53,20 +53,26 @@ sub checkRabbit {
             nimLog(1, "RabbitMQ not reachable....Is the service running?");
             $config->{'status'}->{'rabbit'}->{'samples'}++;
             if ($config->{'status'}->{'rabbit'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                nimLog(1, "RabbitMQ not reachable....Max attempts reached. Creating an alert!");
-                nimAlarm( $config->{'messages'}->{'RabbitConnection'}->{'level'},$config->{'messages'}->{'RabbitConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"rabbitconnect"));
+                if ($config->{'status'}->{'rabbit'}->{'triggered'} == 0){
+                    nimLog(1, "RabbitMQ not reachable....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'RabbitConnection'}->{'level'},$config->{'messages'}->{'RabbitConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"rabbitconnect"));
+                    $config->{'status'}->{'rabbit'}->{'triggered'} = 1;
+                }
             }
             return;
         } else {
-            $config->{'status'}->{'rabbit'}->{'samples'} = 0;
-            nimLog(1, "RabbitMQ Responded!!");
-            nimAlarm( NIML_CLEAR, 'RabbitMQ connection established',$sub_sys,nimSuppToStr(0,0,0,"rabbitconnect"));
+            if ($config->{'status'}->{'rabbit'}-{'triggered'} == 1){
+                $config->{'status'}->{'rabbit'}->{'samples'} = 0;
+                nimLog(1, "RabbitMQ Responded!!");
+                nimAlarm( NIML_CLEAR, 'RabbitMQ connection established',$sub_sys,nimSuppToStr(0,0,0,"rabbitconnect"));
+            }
         }
         nimLog(1, 'Returned '.scalar(@data).' lines from rabbitmqctl');
         my $queues_list = {};
         foreach my $line (@data) {
             my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
             if (!defined($key) || !defined($value)) { next; }
+            if ($key == "notifications.info" || $key =~ /glance/) { next; }
             $queues_list->{$key} = $value;
         }
         while ( my ($key, $value) = each(%$queues_list) ) {
@@ -76,21 +82,31 @@ sub checkRabbit {
                 $config->{'status'}->{$key}->{'last'} = $value;
                 if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
                     if ($value >= $config->{'setup'}->{'rabbit-CRIT'}) {
-                        nimLog(1, "Critical alert on message queue $key with queue length $value");
-                        my $alert_string = "[CRITICAL] RabbitMQ queue $key is not processing. Queue $key has $value messages pending.";
-                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"rabbitqueue"));
+                        if ($config->{'status'}->{'rabbit'}->{'crit-triggered'} == 0){
+                            nimLog(1, "Critical alert on message queue $key with queue length $value");
+                            my $alert_string = "[CRITICAL] RabbitMQ queue $key is not processing. Queue $key has $value messages pending.";
+                            nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"rabbitqueue"));
+                            $config->{'status'}->{'rabbit'}->{'crit-triggered'} = 1;
+                        }
                     } else {
-                        nimLog(1, "Warning alert on message queue $key with queue length $value");
-                        my $alert_string = "[WARNING] RabbitMQ queue $key is not processing. Queue $key has $value messages pending.";
-                        nimAlarm( 4,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"rabbitqueue"));
+                        if ($config->{'status'}->{'rabbit'}->{'warn-triggered'} == 0){
+                            nimLog(1, "Warning alert on message queue $key with queue length $value");
+                            my $alert_string = "[WARNING] RabbitMQ queue $key is not processing. Queue $key has $value messages pending.";
+                            nimAlarm( 4,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"rabbitqueue"));
+                            $config->{'status'}->{'rabbit'}->{'warn-triggered'} = 1;
+                        }
                     }
                 }
             } else {
-                $config->{'status'}->{$key}->{'samples'} = 0;
-                $config->{'status'}->{$key}->{'last'} = $value;
-                nimLog(1, "Checking RabbitMQ queue $key queue length now $value");
-                my $alert_string = "RabbitMQ alert on queue $key has cleared";
-                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"rabbitqueue"));
+                if ($config->{'status'}->{'rabbit'}->{'warn-triggered'} == 1 || $config->{'status'}->{'rabbit'}->{'crit-triggered'} == 1){
+                    $config->{'status'}->{$key}->{'samples'} = 0;
+                    $config->{'status'}->{'rabbit'}->{'warn-triggered'} = 0;
+                    $config->{'status'}->{'rabbit'}->{'crit-triggered'} = 0;
+                    $config->{'status'}->{$key}->{'last'} = $value;
+                    nimLog(1, "Checking RabbitMQ queue $key queue length now $value");
+                    my $alert_string = "RabbitMQ alert on queue $key has cleared";
+                    nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"rabbitqueue"));
+                }
             }
         }
     } else {
@@ -116,7 +132,7 @@ sub checkNova {
             }
             return;
         } else {
-            $config->{'status'}->{'rabbit'}->{'samples'} = 0;
+            $config->{'status'}->{'nova'}->{'samples'} = 0;
             if ($config->{'status'}->{'nova'}->{'triggered'} == 1){
                 nimLog(1, "Nova-manage Responded!!");
                 nimAlarm( NIML_CLEAR, 'Nova-manage has started responding',$sub_sys,nimSuppToStr(0,0,0,"novaconnect"));
@@ -159,9 +175,114 @@ sub checkNova {
     }
 }
 
+sub checkKeystone {
+    if (-e '/usr/bin/keystone' ){
+        nimLog(1, "Keystone detected. Checking status...");
+        my @data = `source /root/openrc;/usr/bin/keystone token-get 2>/dev/null`;
+        if ($? != 0 || !@data) {
+            nimLog(1, "Something is wrong!!! Keystone did not respond correctly.");
+            $config->{'status'}->{'keystone'}->{'samples'}++;
+            if ($config->{'status'}->{'keystone'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{'keystone'}->{'triggered'} == 0){
+                    nimLog(1, "Keystone not responding....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'KeystoneConnection'}->{'level'},$config->{'messages'}->{'KeystoneConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"keystoneconnect"));
+                    $config->{'status'}->{'keystone'}->{'triggered'} = 1;
+                }
+            }
+            return;
+        } else {
+            $config->{'status'}->{'keystone'}->{'samples'} = 0;
+            if ($config->{'status'}->{'keystone'}->{'triggered'} == 1){
+                nimLog(1, "Keystone Responded!!");
+                nimAlarm( NIML_CLEAR, 'Keystone has started responding',$sub_sys,nimSuppToStr(0,0,0,"keystoneconnect"));
+                $config->{'status'}->{'keystone'}->{'triggered'} = 0;
+            }
+        } 
+    }
+}
+
+sub checkGlance {
+    if (-e '/usr/bin/glance' ){
+        nimLog(1, "Glance detected. Checking status...");
+        my @data = `source /root/openrc;/usr/bin/glance index 2>/dev/null`;
+        if ($? != 0 || !@data) {
+            nimLog(1, "Something is wrong!!! Glance did not respond correctly.");
+            $config->{'status'}->{'glance'}->{'samples'}++;
+            if ($config->{'status'}->{'glance'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{'glance'}->{'triggered'} == 0){
+                    nimLog(1, "Glance not responding....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'GlanceConnection'}->{'level'},$config->{'messages'}->{'GlanceConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"glanceconnect"));
+                    $config->{'status'}->{'glance'}->{'triggered'} = 1;
+                }
+            }
+            return;
+        } else {
+            $config->{'status'}->{'glance'}->{'samples'} = 0;
+            if ($config->{'status'}->{'glance'}->{'triggered'} == 1){
+                nimLog(1, "Glance Responded!!");
+                nimAlarm( NIML_CLEAR, 'Glance has started responding',$sub_sys,nimSuppToStr(0,0,0,"glanceconnect"));
+                $config->{'status'}->{'glance'}->{'triggered'} = 0;
+            }
+        } 
+    }
+}
+
 sub checkNeutron {
     if ( -e '/usr/bin/neutron' ) {
         nimLog(1, "Neutron detected. Checking status...");
+        my @data = `source /root/openrc;/usr/bin/neutron agent-list 2>/dev/null`;
+        my $host = `hostname`;
+        chomp($host);
+        if ($? != 0 || !@data) {
+            nimLog(1, "Something is wrong!!! Neutron did not respond correctly.");
+            $config->{'status'}->{'neutron'}->{'samples'}++;
+            if ($config->{'status'}->{'neutron'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
+                    nimLog(1, "Neutron not responding....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'NeutronConnection'}->{'level'},$config->{'messages'}->{'NeutronConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
+                    $config->{'status'}->{'neutron'}->{'triggered'} = 1;
+                }
+            }
+            return;
+        } else {
+            $config->{'status'}->{'neutron'}->{'samples'} = 0;
+            if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
+                nimLog(1, "Neutron Responded!!");
+                nimAlarm( NIML_CLEAR, 'Neutron has started responding',$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
+                $config->{'status'}->{'neutron'}->{'triggered'} = 0;
+            }
+        }
+        nimLog(1, 'Returned '.scalar(@data).' lines from neutron');
+        my $service_list = {};
+        shift @data;
+        foreach my $line (@data) {
+            my @values = split(' ',$line);
+            if ((@values[2] =~ /$host/) and (@values[3] eq 'True')){
+                $service_list->{$values[1]} = $values[3];
+            }
+        }
+        while ( my ($key, $value) = each(%$service_list) ) {
+            if ( $value eq 'XXX' || $value eq 'xxx' ) {
+                if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
+                $config->{'status'}->{$key}->{'samples'}++;
+                if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                    if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
+                        nimLog(1, "Critical alert on neutron service $key");
+                        my $alert_string = "[CRITICAL] Neutron Service $key is not checking in. Please investigate.";
+                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
+                        $config->{'status'}->{'neutron'}->{'triggered'} = 1;
+                    }
+                }
+            } else {
+                $config->{'status'}->{$key}->{'samples'} = 0;
+                if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
+                    nimLog(1, "Neutron service $key has checked in.");
+                    my $alert_string = "Neutron Service ($key) Alert clear";
+                    nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
+                    $config->{'status'}->{'neutron'}->{'triggered'} = 0;
+               }
+            }
+        }
     } else {
         nimLog(1, "Neutron NOT detected. Skipping.");
     }
@@ -214,6 +335,8 @@ sub timeout {
     checkNova();
     checkNeutron();
     checkCinder();
+    checkKeystone();
+    checkGlance();
 }
 
 sub checkMysql {
