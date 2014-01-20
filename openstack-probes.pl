@@ -15,7 +15,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.7';
+my $version = '0.8';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -174,7 +174,7 @@ sub checkNova {
 }
 
 sub checkKeystone {
-    if (-e '/usr/bin/keystone' ){
+    if (-e '/usr/bin/keystone-all' ){
         nimLog(1, "Keystone detected. Checking status...");
         my @data = `source /root/openrc;/usr/bin/keystone token-get 2>/dev/null`;
         if ($? != 0 || !@data) {
@@ -200,7 +200,7 @@ sub checkKeystone {
 }
 
 sub checkGlance {
-    if (-e '/usr/bin/glance' ){
+    if (-e '/usr/bin/glance-manage' ){
         nimLog(1, "Glance detected. Checking status...");
         my @data = `source /root/openrc;/usr/bin/glance index 2>/dev/null`;
         if ($? != 0 || !@data) {
