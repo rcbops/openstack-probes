@@ -15,7 +15,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.6';
+my $version = '0.7';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -26,9 +26,7 @@ sub suppression_active {
     my $_supp = $config->{'suppression'};
     foreach my $_interval_name (keys(%{$config->{'suppression'}})) {
         my $interval = $config->{'suppression'}->{$_interval_name};
-        if (($interval->{'active'} =~ /no/i) || ($interval->{'active'} !~ /yes/i)) {
-            next;
-        }
+        next if (($interval->{'active'} =~ /no/i) || ($interval->{'active'} !~ /yes/i)); 
         my ($_st_hour, $_st_min) = $interval->{'start'} =~ /(\d+):(\d+)/;
         my ($_end_hour, $_end_min) = $interval->{'end'} =~ /(\d+):(\d+)/;
         if (!defined($_st_hour) || !defined($_st_min) ||
@@ -71,8 +69,8 @@ sub checkRabbit {
         my $queues_list = {};
         foreach my $line (@data) {
             my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
-            if (!defined($key) || !defined($value)) { next; }
-            if ($key == "notifications.info" || $key =~ /glance/) { next; }
+            next if (!defined($key) || !defined($value));
+            next if ($key == "notifications.info" || $key =~ /glance/);
             $queues_list->{$key} = $value;
         }
         while ( my ($key, $value) = each(%$queues_list) ) {
@@ -365,7 +363,7 @@ sub checkMysql {
         my $slave_status = {};
         foreach my $line (@data) {
             my ($key, $value) = $line =~ /^\s*(\S+):\s(\S*)$/;
-            if (!defined($key) || !defined($value)) { next; }
+            next if (!defined($key) || !defined($value));
             $slave_status->{$key} = $value;
         }
         if ($slave_status->{'Slave_IO_Running'} =~ /no/i) {
