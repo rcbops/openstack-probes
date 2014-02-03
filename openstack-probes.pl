@@ -15,7 +15,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.8';
+my $version = '0.9';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -176,7 +176,7 @@ sub checkNova {
 sub checkKeystone {
     if (-e '/usr/bin/keystone-all' ){
         nimLog(1, "Keystone detected. Checking status...");
-        my @data = `source /root/openrc;/usr/bin/keystone token-get 2>/dev/null`;
+        my @data = `/usr/bin/keystone --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} token-get 2>/dev/null`;
         if ($? != 0 || !@data) {
             nimLog(1, "Something is wrong!!! Keystone did not respond correctly.");
             $config->{'status'}->{'keystone'}->{'samples'}++;
@@ -202,7 +202,7 @@ sub checkKeystone {
 sub checkGlance {
     if (-e '/usr/bin/glance-manage' ){
         nimLog(1, "Glance detected. Checking status...");
-        my @data = `source /root/openrc;/usr/bin/glance index 2>/dev/null`;
+        my @data = `/usr/bin/glance --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} index 2>/dev/null`;
         if ($? != 0 || !@data) {
             nimLog(1, "Something is wrong!!! Glance did not respond correctly.");
             $config->{'status'}->{'glance'}->{'samples'}++;
@@ -228,7 +228,7 @@ sub checkGlance {
 sub checkNeutron {
     if ( -e '/usr/bin/neutron' ) {
         nimLog(1, "Neutron detected. Checking status...");
-        my @data = `source /root/openrc;/usr/bin/neutron agent-list 2>/dev/null`;
+        my @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
         my $host = `hostname`;
         chomp($host);
         if ($? != 0 || !@data) {
@@ -532,6 +532,19 @@ sub readConfig {
     my $loglevel  = $options{'d'} || $config->{'setup'}->{'loglevel'} || 0;
     my $logfile   = $options{'l'} || $config->{'setup'}->{'logfile'} || $prgname.'.log';
     nimLogSet($logfile, $prgname, $loglevel, 0);
+    if ( -e '/root/openrc' ) {
+	open (openrc,'/root/openrc');
+	while (<openrc>) {
+		chomp;
+		if (substr($_,0,1) !~ "#"){
+			my ($key, $val) = split /=/;
+			if ($key =~ "OS_USERNAME") { if (!defined($config->{'setup'}->{'os-username'})) { $config->{'setup'}->{'os-username'} = $val; }}
+			if ($key =~ "OS_PASSWORD") { if (!defined($config->{'setup'}->{'os-password'})) { $config->{'setup'}->{'os-password'} = $val; }}
+			if ($key =~ "OS_TENANT_NAME") { if (!defined($config->{'setup'}->{'os-tenant'})) { $config->{'setup'}->{'os-tenant'} = $val; }}
+			if ($key =~ "OS_AUTH_URL") { if (!defined($config->{'setup'}->{'os-auth-url'})) { $config->{'setup'}->{'os-auth-url'} = $val; }}
+		}
+	}
+    }
     if (!defined($config->{'setup'}->{'interval'})) { $config->{'setup'}->{'interval'} = 300; }
     if (!defined($config->{'setup'}->{'samples'})) { $config->{'setup'}->{'samples'} = 3; }
     if (!defined($config->{'setup'}->{'mysql-CRIT'})) { $config->{'setup'}->{'mysql-CRIT'} = 600; }

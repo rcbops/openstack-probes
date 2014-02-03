@@ -17,6 +17,10 @@
    lvm-cmd-line = /sbin/vgdisplay
    volume-name = cinder-volumes
    volume-alarm = 10
+   os-username =
+   os-password =
+   os-tenant =
+   os-auth-url =
 </setup>
 <suppression>
    <[default]>
