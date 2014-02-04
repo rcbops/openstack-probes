@@ -38,9 +38,10 @@ sub suppression_active {
 }
 
 sub checkRabbit {
+    my @data;
     if ( -e '/etc/init.d/rabbitmq-server' ) {
         nimLog(1, "RabbitMQ detected. Checking status...");
-        my @data = `$config->{'setup'}->{'rabbitmq_cmd_line'} list_queues 2>/dev/null`;
+        @data = `$config->{'setup'}->{'rabbitmq_cmd_line'} list_queues 2>/dev/null`;
         if ($? != 0 || !@data) {
             nimLog(1, "RabbitMQ not reachable....Is the service running?");
             $config->{'status'}->{'rabbit'}->{'samples'}++;
@@ -107,9 +108,10 @@ sub checkRabbit {
 }
 
 sub checkNova {
+    my @data;
     if ( -e '/usr/bin/nova-manage' ) {
         nimLog(1, "Nova-Manage detected. Checking status...");
-        my @data = `/usr/bin/nova-manage service list 2>/dev/null`;
+        @data = `/usr/bin/nova-manage service list 2>/dev/null`;
         my $host = `hostname`;
         chomp($host);
         if ($? != 0 || !@data) {
@@ -168,9 +170,10 @@ sub checkNova {
 }
 
 sub checkKeystone {
+    my @data;
     if (-e '/usr/bin/keystone-all' ){
         nimLog(1, "Keystone detected. Checking status...");
-        my @data = `/usr/bin/keystone --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} token-get 2>/dev/null`;
+        @data = `/usr/bin/keystone --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} token-get 2>/dev/null`;
         if ($? != 0 || !@data) {
             nimLog(1, "Something is wrong!!! Keystone did not respond correctly.");
             $config->{'status'}->{'keystone'}->{'samples'}++;
@@ -194,9 +197,10 @@ sub checkKeystone {
 }
 
 sub checkGlance {
+    my @data;
     if (-e '/usr/bin/glance-manage' ){
         nimLog(1, "Glance detected. Checking status...");
-        my @data = `/usr/bin/glance --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} index 2>/dev/null`;
+        @data = `/usr/bin/glance --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} index 2>/dev/null`;
         if ($? != 0 || !@data) {
             nimLog(1, "Something is wrong!!! Glance did not respond correctly.");
             $config->{'status'}->{'glance'}->{'samples'}++;
@@ -220,12 +224,13 @@ sub checkGlance {
 }
 
 sub checkNeutron {
+    my @data;
     if ( -e '/usr/bin/neutron' || -e '/usr/bin/quantum' ) {
         nimLog(1, "Neutron/Quantum detected. Checking status...");
 	   if ( -e '/usr/bin/neutron' ) {
-         	my @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
+         	@data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
 	   } else {
-        	my @data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
+        	@data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
     	}
         my $host = `hostname`;
         chomp($host);
@@ -317,9 +322,10 @@ sub checkCinder {
 }
 
 sub checkKvm {
+    my @data;
     if (-e '/usr/bin/virsh' ){
         nimLog(1, "LibVirt detected. Checking status...");
-        my @data = `/usr/bin/virsh sysinfo 2>/dev/null`;
+        @data = `/usr/bin/virsh sysinfo 2>/dev/null`;
         if ($? != 0 || !@data) {
             nimLog(1, "Something is wrong!!! LibVirt did not respond correctly.");
             $config->{'status'}->{'kvm'}->{'samples'}++;
@@ -563,10 +569,10 @@ sub readConfig {
 		chomp;
 		if (substr($_,0,1) !~ "#"){
 			my ($key, $val) = split /=/;
-			if ($key =~ "OS_USERNAME") { if (!defined($config->{'setup'}->{'os-username'})) { $config->{'setup'}->{'os-username'} = $val; }}
-			if ($key =~ "OS_PASSWORD") { if (!defined($config->{'setup'}->{'os-password'})) { $config->{'setup'}->{'os-password'} = $val; }}
-			if ($key =~ "OS_TENANT_NAME") { if (!defined($config->{'setup'}->{'os-tenant'})) { $config->{'setup'}->{'os-tenant'} = $val; }}
-			if ($key =~ "OS_AUTH_URL") { if (!defined($config->{'setup'}->{'os-auth-url'})) { $config->{'setup'}->{'os-auth-url'} = $val; }}
+			if ($key =~ "OS_USERNAME") { if (length($config->{'setup'}->{'os-username'}) eq 0) { $config->{'setup'}->{'os-username'} = $val; }}
+			if ($key =~ "OS_PASSWORD") { if (length($config->{'setup'}->{'os-password'}) eq 0) { $config->{'setup'}->{'os-password'} = $val; }}
+			if ($key =~ "OS_TENANT_NAME") { if (length($config->{'setup'}->{'os-tenant'}) eq 0) { $config->{'setup'}->{'os-tenant'} = $val; }}
+			if ($key =~ "OS_AUTH_URL") { if (length($config->{'setup'}->{'os-auth-url'}) eq 0) { $config->{'setup'}->{'os-auth-url'} = $val; }}
 		}
 	}
     }
