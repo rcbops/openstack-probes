@@ -74,4 +74,8 @@
       text = Glance not responding correctly. Please investigate.
       level = 5
    </GlanceConnection>
+   <KvmConnection>
+      text = LibVirt not responding correctly. Please investigate.
+      level = 5
+   </KvmConnection>
 </messages>

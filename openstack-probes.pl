@@ -1,11 +1,5 @@
 #!$NIM_BIN/perl
 
-###########################################################
-# I Stole Rick's mysql replication probe and added to it.
-# I hope you don't mind Rick.
-# Jake
-###########################################################
-
 use strict;
 use Getopt::Std;
 use Nimbus::API;
@@ -15,7 +9,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.9';
+my $version = '0.10';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -226,17 +220,21 @@ sub checkGlance {
 }
 
 sub checkNeutron {
-    if ( -e '/usr/bin/neutron' ) {
-        nimLog(1, "Neutron detected. Checking status...");
-        my @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
+    if ( -e '/usr/bin/neutron' || -e '/usr/bin/quantum' ) {
+        nimLog(1, "Neutron/Quantum detected. Checking status...");
+	   if ( -e '/usr/bin/neutron' ) {
+         	my @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
+	   } else {
+        	my @data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
+    	}
         my $host = `hostname`;
         chomp($host);
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! Neutron did not respond correctly.");
+            nimLog(1, "Something is wrong!!! Neutron/Quantum did not respond correctly.");
             $config->{'status'}->{'neutron'}->{'samples'}++;
             if ($config->{'status'}->{'neutron'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
                 if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
-                    nimLog(1, "Neutron not responding....Max attempts reached. Creating an alert!");
+                    nimLog(1, "Neutron/Quantum not responding....Max attempts reached. Creating an alert!");
                     nimAlarm( $config->{'messages'}->{'NeutronConnection'}->{'level'},$config->{'messages'}->{'NeutronConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
                     $config->{'status'}->{'neutron'}->{'triggered'} = 1;
                 }
@@ -246,11 +244,11 @@ sub checkNeutron {
             $config->{'status'}->{'neutron'}->{'samples'} = 0;
             if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
                 nimLog(1, "Neutron Responded!!");
-                nimAlarm( NIML_CLEAR, 'Neutron has started responding',$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
+                nimAlarm( NIML_CLEAR, 'Neutron/Quantum has started responding',$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
                 $config->{'status'}->{'neutron'}->{'triggered'} = 0;
             }
         }
-        nimLog(1, 'Returned '.scalar(@data).' lines from neutron');
+        nimLog(1, 'Returned '.scalar(@data).' lines from neutron/Quantum');
         my $service_list = {};
         shift @data;
         foreach my $line (@data) {
@@ -266,7 +264,7 @@ sub checkNeutron {
                 if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
                     if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
                         nimLog(1, "Critical alert on neutron service $key");
-                        my $alert_string = "[CRITICAL] Neutron Service $key is not checking in. Please investigate.";
+                        my $alert_string = "[CRITICAL] Neutron/Quantum Service $key is not checking in. Please investigate.";
                         nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
                         $config->{'status'}->{'neutron'}->{'triggered'} = 1;
                     }
@@ -274,7 +272,7 @@ sub checkNeutron {
             } else {
                 $config->{'status'}->{$key}->{'samples'} = 0;
                 if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
-                    nimLog(1, "Neutron service $key has checked in.");
+                    nimLog(1, "Neutron/Quantum service $key has checked in.");
                     my $alert_string = "Neutron Service ($key) Alert clear";
                     nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
                     $config->{'status'}->{'neutron'}->{'triggered'} = 0;
@@ -282,7 +280,7 @@ sub checkNeutron {
             }
         }
     } else {
-        nimLog(1, "Neutron NOT detected. Skipping.");
+        nimLog(1, "Neutron/Quantum NOT detected. Skipping.");
     }
 }
 
@@ -318,6 +316,32 @@ sub checkCinder {
     }
 }
 
+sub checkKvm {
+    if (-e '/usr/bin/virsh' ){
+        nimLog(1, "LibVirt detected. Checking status...");
+        my @data = `/usr/bin/virsh sysinfo 2>/dev/null`;
+        if ($? != 0 || !@data) {
+            nimLog(1, "Something is wrong!!! LibVirt did not respond correctly.");
+            $config->{'status'}->{'kvm'}->{'samples'}++;
+            if ($config->{'status'}->{'kvm'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{'kvm'}->{'triggered'} == 0){
+                    nimLog(1, "LibVirt not responding....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'KvmConnection'}->{'level'},$config->{'messages'}->{'KvmConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"kvmconnect"));
+                    $config->{'status'}->{'kvm'}->{'triggered'} = 1;
+                }
+            }
+            return;
+        } else {
+            $config->{'status'}->{'kvm'}->{'samples'} = 0;
+            if ($config->{'status'}->{'kvm'}->{'triggered'} == 1){
+                nimLog(1, "LibVirt Responded!!");
+                nimAlarm( NIML_CLEAR, 'LibVirt has started responding',$sub_sys,nimSuppToStr(0,0,0,"kvmconnect"));
+                $config->{'status'}->{'kvm'}->{'triggered'} = 0;
+            }
+        } 
+    }
+}
+
 sub timeout {
     my $timestamp = time();
     if ($timestamp < $config->{'status'}->{'next_run'}) { return; }
@@ -335,6 +359,7 @@ sub timeout {
     checkCinder();
     checkKeystone();
     checkGlance();
+    checkKvm();
 }
 
 sub checkMysql {
@@ -572,6 +597,12 @@ sub init_setup {
     $config->{'status'}->{'nova'}->{'triggered'} = 0;
     $config->{'status'}->{'neutron'}->{'samples'} = 0;
     $config->{'status'}->{'neutron'}->{'triggered'} = 0;
+    $config->{'status'}->{'keystone'}->{'samples'} = 0;
+    $config->{'status'}->{'keystone'}->{'triggered'} = 0;
+    $config->{'status'}->{'glance'}->{'samples'} = 0;
+    $config->{'status'}->{'glance'}->{'triggered'} = 0;
+    $config->{'status'}->{'kvm'}->{'samples'} = 0;
+    $config->{'status'}->{'kvm'}->{'triggered'} = 0;
     $config->{'status'}->{'Slave_IO_Running'}->{'last'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'triggered'} = 0;
