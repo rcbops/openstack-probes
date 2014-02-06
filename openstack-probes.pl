@@ -9,7 +9,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.10';
+my $version = '0.11';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -225,7 +225,7 @@ sub checkGlance {
 
 sub checkNeutron {
     my @data;
-    if ( -e '/usr/bin/neutron' || -e '/usr/bin/quantum' ) {
+    if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
         nimLog(1, "Neutron/Quantum detected. Checking status...");
 	   if ( -e '/usr/bin/neutron' ) {
          	@data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
