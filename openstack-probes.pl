@@ -9,7 +9,7 @@ use Data::Dumper;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.11';
+my $version = '0.12';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -193,6 +193,8 @@ sub checkKeystone {
                 $config->{'status'}->{'keystone'}->{'triggered'} = 0;
             }
         } 
+	my @token = split(' ',@data[4]);
+	$config->{'setup'}->{'keystone-token'} = @token[3];
     }
 }
 
@@ -225,15 +227,37 @@ sub checkGlance {
 
 sub checkNeutron {
     my @data;
+    my $host = `hostname`;
+    chomp($host);
+    if ( -e '/etc/init.d/neutron-server' || -e '/etc/init.d/quantum-server' ) {
+        nimLog(1, "Local Neutron/Quantum server detected. Checking status...");
+        @data = `curl -f -H "X-Auth-Token:$config->{'setup'}->{'keystone-token'}" http://$host:9696/v2.0/networks`;
+        if ($? != 0 || !@data) {
+            nimLog(1, "Something is wrong!!! Local Neutron/Quantum server did not respond correctly.");
+            $config->{'status'}->{'neutron-server'}->{'samples'}++;
+            if ($config->{'status'}->{'neutron-server'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{'neutron-server'}->{'triggered'} == 0){
+                    nimLog(1, "Local Neutron/Quantum server not responding....Max attempts reached. Creating an alert!");
+                    nimAlarm( $config->{'messages'}->{'NeutronServerConnection'}->{'level'},$config->{'messages'}->{'NeutronServerConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"neutronserverconnect"));
+                    $config->{'status'}->{'neutron-server'}->{'triggered'} = 1;
+                }
+            }
+        } else {
+            $config->{'status'}->{'neutron-server'}->{'samples'} = 0;
+            if ($config->{'status'}->{'neutron-server'}->{'triggered'} == 1){
+                nimLog(1, "Local Neutroni/Quantum server Responded!!");
+                nimAlarm( NIML_CLEAR, 'Local Neutron/Quantum server has started responding',$sub_sys,nimSuppToStr(0,0,0,"neutronserverconnect"));
+                $config->{'status'}->{'neutron-server'}->{'triggered'} = 0;
+            }
+        }
+    }
     if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
-        nimLog(1, "Neutron/Quantum detected. Checking status...");
+        nimLog(1, "Neutron/Quantum agent(s) detected. Checking status...");
 	   if ( -e '/usr/bin/neutron' ) {
          	@data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
 	   } else {
         	@data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
     	}
-        my $host = `hostname`;
-        chomp($host);
         if ($? != 0 || !@data) {
             nimLog(1, "Something is wrong!!! Neutron/Quantum did not respond correctly.");
             $config->{'status'}->{'neutron'}->{'samples'}++;
@@ -253,7 +277,7 @@ sub checkNeutron {
                 $config->{'status'}->{'neutron'}->{'triggered'} = 0;
             }
         }
-        nimLog(1, 'Returned '.scalar(@data).' lines from neutron/Quantum');
+        nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum');
         my $service_list = {};
         shift @data;
         foreach my $line (@data) {
@@ -358,12 +382,12 @@ sub timeout {
         nimLog(1, "Suppression interval '$_s_active' active");
         return;
     }
+    checkKeystone();
     checkRabbit();
     checkMysql();
     checkNova();
     checkNeutron();
     checkCinder();
-    checkKeystone();
     checkGlance();
     checkKvm();
 }
@@ -603,6 +627,8 @@ sub init_setup {
     $config->{'status'}->{'nova'}->{'triggered'} = 0;
     $config->{'status'}->{'neutron'}->{'samples'} = 0;
     $config->{'status'}->{'neutron'}->{'triggered'} = 0;
+    $config->{'status'}->{'neutron-server'}->{'samples'} = 0;
+    $config->{'status'}->{'neutron-server'}->{'triggered'} = 0;
     $config->{'status'}->{'keystone'}->{'samples'} = 0;
     $config->{'status'}->{'keystone'}->{'triggered'} = 0;
     $config->{'status'}->{'glance'}->{'samples'} = 0;

@@ -62,8 +62,12 @@
       text = Nova-manage not responding correctly. Please investigate.
       level = 5
    </NovaConnection>
+   <NeutronServerConnection>
+      text = Local Neutron/Quantum Server is not responding correctly. Please investigate.
+      level = 5
+   </NeutronServerConnection>
    <NeutronConnection>
-      text = Neutron not responding correctly. Please investigate.
+      text = Neutron/Quantum agent(s) not responding correctly. Please investigate.
       level = 5
    </NeutronConnection>
    <KeystoneConnection>
