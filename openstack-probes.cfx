@@ -56,30 +56,37 @@
    </DatabaseConnection>
    <RabbitConnection>
       text = Cannot connect to RabbitMQ-Server, please verify server is running.
+      clear = Rabbit is now responding as expected. This alert is now clear.
       level = 5
    </RabbitConnection>
    <NovaConnection>
       text = Nova-manage not responding correctly. Please investigate.
+      clear = Nova-manage is now responding as expected. This alert is now clear.
       level = 5
    </NovaConnection>
    <NeutronServerConnection>
       text = Local Neutron/Quantum Server is not responding correctly. Please investigate.
+      clear = Neutron/Quantum is now responding as expected. This alert is now clear.
       level = 5
    </NeutronServerConnection>
    <NeutronConnection>
       text = Neutron/Quantum agent(s) not responding correctly. Please investigate.
+      clear = Neutron/Quantum agent(s) are now responding as expected. This alert is now clear.
       level = 5
    </NeutronConnection>
    <KeystoneConnection>
       text = Keystone not responding correctly. Please investigate.
+      clear = Keystone is now responding as expected. This alert is now clear.
       level = 5
    </KeystoneConnection>
    <GlanceConnection>
       text = Glance not responding correctly. Please investigate.
+      clear = Glance is now responding as expected. This alert is now clear.
       level = 5
    </GlanceConnection>
    <KvmConnection>
       text = LibVirt not responding correctly. Please investigate.
+      clear = LibVirt is now responding as expected. This alert is now clear.
       level = 5
    </KvmConnection>
 </messages>

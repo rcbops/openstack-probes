@@ -6,10 +6,11 @@ use Nimbus::API;
 use Nimbus::Session;
 use Nimbus::CFG;
 use Data::Dumper;
+use Switch;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.12';
+my $version = '0.13';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -37,28 +38,67 @@ sub suppression_active {
     return undef;    
 }
 
+sub blackAndWhite {
+    my ($message, $goodOrBad) = @_;
+    my $logMessage;
+    switch ($message) {
+        case "RabbitConnection" {
+            $logMessage = "RabbitMQ not reachable....Is the service running?";
+        }
+        case "NovaConnection" {
+            $logMessage = "Something is wrong!!! Nova-manage did not respond correctly.";
+        }
+        case "KeystoneConnection" {
+            $logMessage = "Something is wrong!!! Keystone did not respond correctly.";
+        }
+        case "GlanceConnection" {
+            $logMessage = "Something is wrong!!! Glance did not respond correctly.";
+        }
+        case "NeutronServerConnection" {
+            $logMessage = "Something is wrong!!! Local Neutron/Quantum server did not respond correctly.";
+        }
+        case "NeutronConnection" {
+            $logMessage = "Something is wrong!!! Neutron/Quantum did not respond correctly.";
+        }
+        case "KvmConnection" {
+            $logMessage = "Something is wrong!!! LibVirt did not respond correctly.";
+        }
+        else {
+            $logMessage = "Something is really wrong!!!";
+        }
+
+    }
+    if ( $goodOrBad == 1 ) {
+        nimLog(1, $logMessage);
+        $config->{'status'}->{$message}->{'samples'}++;
+        if ($config->{'status'}->{$message}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+            if ($config->{'status'}->{$message}->{'triggered'} == 0){
+                nimLog(1, "Max attempts reached. Creating an alert!");
+                nimAlarm( $config->{'messages'}->{$message}->{'level'},$config->{'messages'}->{$message}->{'text'},$sub_sys,nimSuppToStr(0,0,0,$message));
+                $config->{'status'}->{$message}->{'triggered'} = 1;
+            }
+        }
+    } else {
+        if ($config->{'status'}->{$message}-{'triggered'} == 1){
+            $config->{'status'}->{$message}->{'samples'} = 0;
+            nimLog(1, "All Clear!!");
+            nimAlarm( NIML_CLEAR, $config->{'messages'}->{$message}->{'clear'},$sub_sys,nimSuppToStr(0,0,0,$message));
+        }
+
+    }
+    return
+}
+
 sub checkRabbit {
     my @data;
     if ( -e '/etc/init.d/rabbitmq-server' ) {
         nimLog(1, "RabbitMQ detected. Checking status...");
         @data = `$config->{'setup'}->{'rabbitmq_cmd_line'} list_queues 2>/dev/null`;
         if ($? != 0 || !@data) {
-            nimLog(1, "RabbitMQ not reachable....Is the service running?");
-            $config->{'status'}->{'rabbit'}->{'samples'}++;
-            if ($config->{'status'}->{'rabbit'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'rabbit'}->{'triggered'} == 0){
-                    nimLog(1, "RabbitMQ not reachable....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'RabbitConnection'}->{'level'},$config->{'messages'}->{'RabbitConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"rabbitconnect"));
-                    $config->{'status'}->{'rabbit'}->{'triggered'} = 1;
-                }
-            }
+            blackAndWhite("RabbitConnection",1);
             return;
         } else {
-            if ($config->{'status'}->{'rabbit'}-{'triggered'} == 1){
-                $config->{'status'}->{'rabbit'}->{'samples'} = 0;
-                nimLog(1, "RabbitMQ Responded!!");
-                nimAlarm( NIML_CLEAR, 'RabbitMQ connection established',$sub_sys,nimSuppToStr(0,0,0,"rabbitconnect"));
-            }
+            blackAndWhite("RabbitConnection",0);
         }
         nimLog(1, 'Returned '.scalar(@data).' lines from rabbitmqctl');
         my $queues_list = {};
@@ -115,23 +155,10 @@ sub checkNova {
         my $host = `hostname`;
         chomp($host);
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! Nova-manage did not respond correctly.");
-            $config->{'status'}->{'nova'}->{'samples'}++;
-            if ($config->{'status'}->{'nova'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'nova'}->{'triggered'} == 0){
-                    nimLog(1, "Nova-manage not responding....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'NovaConnection'}->{'level'},$config->{'messages'}->{'NovaConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"novaconnect"));
-                    $config->{'status'}->{'nova'}->{'triggered'} = 1;
-                }
-            }
+            blackAndWhite("NovaConnection",1);
             return;
         } else {
-            $config->{'status'}->{'nova'}->{'samples'} = 0;
-            if ($config->{'status'}->{'nova'}->{'triggered'} == 1){
-                nimLog(1, "Nova-manage Responded!!");
-                nimAlarm( NIML_CLEAR, 'Nova-manage has started responding',$sub_sys,nimSuppToStr(0,0,0,"novaconnect"));
-                $config->{'status'}->{'nova'}->{'triggered'} = 0;
-            }
+            blackAndWhite("NovaConnection",0);
         }
         nimLog(1, 'Returned '.scalar(@data).' lines from nova-manage');
         my $service_list = {};
@@ -171,30 +198,18 @@ sub checkNova {
 
 sub checkKeystone {
     my @data;
+    my $host = `/bin/hostname`;
+    chomp($host);
     if (-e '/usr/bin/keystone-all' ){
         nimLog(1, "Keystone detected. Checking status...");
-        @data = `/usr/bin/keystone --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} token-get 2>/dev/null`;
+        @data = `/usr/bin/keystone --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url http://$host:5000/v2.0 --os-password $config->{'setup'}->{'os-password'} token-get 2>/dev/null`;
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! Keystone did not respond correctly.");
-            $config->{'status'}->{'keystone'}->{'samples'}++;
-            if ($config->{'status'}->{'keystone'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'keystone'}->{'triggered'} == 0){
-                    nimLog(1, "Keystone not responding....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'KeystoneConnection'}->{'level'},$config->{'messages'}->{'KeystoneConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"keystoneconnect"));
-                    $config->{'status'}->{'keystone'}->{'triggered'} = 1;
-                }
-            }
-            return;
+            blackAndWhite("KeystoneConnection",1);
         } else {
-            $config->{'status'}->{'keystone'}->{'samples'} = 0;
-            if ($config->{'status'}->{'keystone'}->{'triggered'} == 1){
-                nimLog(1, "Keystone Responded!!");
-                nimAlarm( NIML_CLEAR, 'Keystone has started responding',$sub_sys,nimSuppToStr(0,0,0,"keystoneconnect"));
-                $config->{'status'}->{'keystone'}->{'triggered'} = 0;
-            }
+            blackAndWhite("KeystoneConnection",0);
+	    my @token = split(' ',@data[4]);
+	    $config->{'setup'}->{'keystone-token'} = @token[3];
         } 
-	my @token = split(' ',@data[4]);
-	$config->{'setup'}->{'keystone-token'} = @token[3];
     }
 }
 
@@ -204,28 +219,15 @@ sub checkGlance {
         nimLog(1, "Glance detected. Checking status...");
         @data = `/usr/bin/glance --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} index 2>/dev/null`;
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! Glance did not respond correctly.");
-            $config->{'status'}->{'glance'}->{'samples'}++;
-            if ($config->{'status'}->{'glance'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'glance'}->{'triggered'} == 0){
-                    nimLog(1, "Glance not responding....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'GlanceConnection'}->{'level'},$config->{'messages'}->{'GlanceConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"glanceconnect"));
-                    $config->{'status'}->{'glance'}->{'triggered'} = 1;
-                }
-            }
+            blackAndWhite("GlanceConnection",1);
             return;
         } else {
-            $config->{'status'}->{'glance'}->{'samples'} = 0;
-            if ($config->{'status'}->{'glance'}->{'triggered'} == 1){
-                nimLog(1, "Glance Responded!!");
-                nimAlarm( NIML_CLEAR, 'Glance has started responding',$sub_sys,nimSuppToStr(0,0,0,"glanceconnect"));
-                $config->{'status'}->{'glance'}->{'triggered'} = 0;
-            }
+            blackAndWhite("GlanceConnection",0);
         } 
     }
 }
 
-sub checkNeutron {
+sub checkNeutronServer {
     my @data;
     my $host = `hostname`;
     chomp($host);
@@ -233,24 +235,18 @@ sub checkNeutron {
         nimLog(1, "Local Neutron/Quantum server detected. Checking status...");
         @data = `curl -f -H "X-Auth-Token:$config->{'setup'}->{'keystone-token'}" http://$host:9696/v2.0/networks`;
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! Local Neutron/Quantum server did not respond correctly.");
-            $config->{'status'}->{'neutron-server'}->{'samples'}++;
-            if ($config->{'status'}->{'neutron-server'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'neutron-server'}->{'triggered'} == 0){
-                    nimLog(1, "Local Neutron/Quantum server not responding....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'NeutronServerConnection'}->{'level'},$config->{'messages'}->{'NeutronServerConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"neutronserverconnect"));
-                    $config->{'status'}->{'neutron-server'}->{'triggered'} = 1;
-                }
-            }
+            blackAndWhite("NeutronServerConnection",1);
         } else {
-            $config->{'status'}->{'neutron-server'}->{'samples'} = 0;
-            if ($config->{'status'}->{'neutron-server'}->{'triggered'} == 1){
-                nimLog(1, "Local Neutroni/Quantum server Responded!!");
-                nimAlarm( NIML_CLEAR, 'Local Neutron/Quantum server has started responding',$sub_sys,nimSuppToStr(0,0,0,"neutronserverconnect"));
-                $config->{'status'}->{'neutron-server'}->{'triggered'} = 0;
-            }
+            nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum');
+            blackAndWhite("NeutronServerConnection",0);
         }
     }
+}
+
+sub checkNeutron {
+    my @data;
+    my $host = `hostname`;
+    chomp($host);
     if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
         nimLog(1, "Neutron/Quantum agent(s) detected. Checking status...");
 	   if ( -e '/usr/bin/neutron' ) {
@@ -259,53 +255,39 @@ sub checkNeutron {
         	@data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
     	}
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! Neutron/Quantum did not respond correctly.");
-            $config->{'status'}->{'neutron'}->{'samples'}++;
-            if ($config->{'status'}->{'neutron'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
-                    nimLog(1, "Neutron/Quantum not responding....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'NeutronConnection'}->{'level'},$config->{'messages'}->{'NeutronConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
-                    $config->{'status'}->{'neutron'}->{'triggered'} = 1;
-                }
-            }
-            return;
+            blackAndWhite("NeutronConnection",1);
         } else {
-            $config->{'status'}->{'neutron'}->{'samples'} = 0;
-            if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
-                nimLog(1, "Neutron Responded!!");
-                nimAlarm( NIML_CLEAR, 'Neutron/Quantum has started responding',$sub_sys,nimSuppToStr(0,0,0,"neutronconnect"));
-                $config->{'status'}->{'neutron'}->{'triggered'} = 0;
-            }
-        }
-        nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum');
-        my $service_list = {};
-        shift @data;
-        foreach my $line (@data) {
-            my @values = split(' ',$line);
-            if ((@values[2] =~ /$host/) and (@values[3] eq 'True')){
-                $service_list->{$values[1]} = $values[3];
-            }
-        }
-        while ( my ($key, $value) = each(%$service_list) ) {
-            if ( $value eq 'XXX' || $value eq 'xxx' ) {
-                if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
-                $config->{'status'}->{$key}->{'samples'}++;
-                if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                    if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
-                        nimLog(1, "Critical alert on neutron service $key");
-                        my $alert_string = "[CRITICAL] Neutron/Quantum Service $key is not checking in. Please investigate.";
-                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
-                        $config->{'status'}->{'neutron'}->{'triggered'} = 1;
-                    }
+            blackAndWhite("NeutronConnection",0);
+            nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum');
+            my $service_list = {};
+            shift @data;
+            foreach my $line (@data) {
+                my @values = split(' ',$line);
+                if ((@values[2] =~ /$host/) and (@values[3] eq 'True')){
+                    $service_list->{$values[1]} = $values[3];
                 }
-            } else {
-                $config->{'status'}->{$key}->{'samples'} = 0;
-                if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
-                    nimLog(1, "Neutron/Quantum service $key has checked in.");
-                    my $alert_string = "Neutron Service ($key) Alert clear";
-                    nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
-                    $config->{'status'}->{'neutron'}->{'triggered'} = 0;
-               }
+            }
+            while ( my ($key, $value) = each(%$service_list) ) {
+                if ( $value eq 'XXX' || $value eq 'xxx' ) {
+                    if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
+                    $config->{'status'}->{$key}->{'samples'}++;
+                    if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                        if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
+                            nimLog(1, "Critical alert on neutron service $key");
+                            my $alert_string = "[CRITICAL] Neutron/Quantum Service $key is not checking in. Please investigate.";
+                            nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
+                            $config->{'status'}->{'neutron'}->{'triggered'} = 1;
+                        }
+                    }
+                } else {
+                    $config->{'status'}->{$key}->{'samples'} = 0;
+                    if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
+                        nimLog(1, "Neutron/Quantum service $key has checked in.");
+                        my $alert_string = "Neutron Service ($key) Alert clear";
+                        nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
+                        $config->{'status'}->{'neutron'}->{'triggered'} = 0;
+                   }
+                }
             }
         }
     } else {
@@ -351,23 +333,10 @@ sub checkKvm {
         nimLog(1, "LibVirt detected. Checking status...");
         @data = `/usr/bin/virsh sysinfo 2>/dev/null`;
         if ($? != 0 || !@data) {
-            nimLog(1, "Something is wrong!!! LibVirt did not respond correctly.");
-            $config->{'status'}->{'kvm'}->{'samples'}++;
-            if ($config->{'status'}->{'kvm'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'kvm'}->{'triggered'} == 0){
-                    nimLog(1, "LibVirt not responding....Max attempts reached. Creating an alert!");
-                    nimAlarm( $config->{'messages'}->{'KvmConnection'}->{'level'},$config->{'messages'}->{'KvmConnection'}->{'text'},$sub_sys,nimSuppToStr(0,0,0,"kvmconnect"));
-                    $config->{'status'}->{'kvm'}->{'triggered'} = 1;
-                }
-            }
+            blackAndWhite("KvmConnection",1);
             return;
         } else {
-            $config->{'status'}->{'kvm'}->{'samples'} = 0;
-            if ($config->{'status'}->{'kvm'}->{'triggered'} == 1){
-                nimLog(1, "LibVirt Responded!!");
-                nimAlarm( NIML_CLEAR, 'LibVirt has started responding',$sub_sys,nimSuppToStr(0,0,0,"kvmconnect"));
-                $config->{'status'}->{'kvm'}->{'triggered'} = 0;
-            }
+            blackAndWhite("KvmConnection",0);
         } 
     }
 }
@@ -383,6 +352,7 @@ sub timeout {
         return;
     }
     checkKeystone();
+    checkNeutronServer();
     checkRabbit();
     checkMysql();
     checkNova();
@@ -621,20 +591,26 @@ sub init_setup {
     $config->{'status'}->{'next_run'} = time(); 
     $config->{'status'}->{'rabbit'}->{'samples'} = 0;
     $config->{'status'}->{'rabbit'}->{'triggered'} = 0;
+    $config->{'status'}->{'RabbitConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'RabbitConnection'}->{'triggered'} = 0;
     $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
     $config->{'status'}->{'volumeGroup'}->{'triggered'} = 0;
+    $config->{'status'}->{'NovaConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'NovaConnection'}->{'triggered'} = 0;
     $config->{'status'}->{'nova'}->{'samples'} = 0;
     $config->{'status'}->{'nova'}->{'triggered'} = 0;
     $config->{'status'}->{'neutron'}->{'samples'} = 0;
     $config->{'status'}->{'neutron'}->{'triggered'} = 0;
-    $config->{'status'}->{'neutron-server'}->{'samples'} = 0;
-    $config->{'status'}->{'neutron-server'}->{'triggered'} = 0;
-    $config->{'status'}->{'keystone'}->{'samples'} = 0;
-    $config->{'status'}->{'keystone'}->{'triggered'} = 0;
-    $config->{'status'}->{'glance'}->{'samples'} = 0;
-    $config->{'status'}->{'glance'}->{'triggered'} = 0;
-    $config->{'status'}->{'kvm'}->{'samples'} = 0;
-    $config->{'status'}->{'kvm'}->{'triggered'} = 0;
+    $config->{'status'}->{'NeutronConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'NeutronConnection'}->{'triggered'} = 0;
+    $config->{'status'}->{'NeutronServerConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'NeutronServerConnection'}->{'triggered'} = 0;
+    $config->{'status'}->{'KeystoneConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'KeystoneConnection'}->{'triggered'} = 0;
+    $config->{'status'}->{'GlanceConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'GlanceConnection'}->{'triggered'} = 0;
+    $config->{'status'}->{'KvmConnection'}->{'samples'} = 0;
+    $config->{'status'}->{'KvmConnection'}->{'triggered'} = 0;
     $config->{'status'}->{'Slave_IO_Running'}->{'last'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'triggered'} = 0;
@@ -655,7 +631,6 @@ $SIG{INT} = \&ctrlc;
 init_setup();
 my $sess = Nimbus::Session->new("$prgname");
 $sess->setInfo($version, "Rackspace The Open Cloud Company");
-
 if ($sess->server(NIMPORT_ANY, \&timeout, \&init_setup) == NIME_OK) {
     nimLog( 0, "server session is created" );
 } else {
