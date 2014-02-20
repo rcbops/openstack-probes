@@ -89,4 +89,9 @@
       clear = LibVirt is now responding as expected. This alert is now clear.
       level = 5
    </KvmConnection>
+   <MemCachedConnection>
+      text = MemCached not responding correctly. Please investigate.
+      clear = MemCached is now responding as expected. This alert is now clear.
+      level = 4
+   </MemCachedConnection>
 </messages>
