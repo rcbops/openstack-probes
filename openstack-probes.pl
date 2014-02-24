@@ -11,7 +11,7 @@ use Switch;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.14';
+my $version = '0.16';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -67,6 +67,9 @@ sub blackAndWhite {
         case "MemCachedConnection" {
             $logMessage = "Something is wrong!!! MemCached did not respond correctly.";
         }
+        case "CinderConnection" {
+            $logMessage = "Something is wrong!!! Local Cinder-Api Service did not respond correctly.";
+        }
         else {
             $logMessage = "Something is really wrong!!!";
         }
@@ -97,12 +100,15 @@ sub checkMemcached {
 	if ( -e '/etc/init.d/memcached' ) {
         	nimLog(1, "MemCached Detected. Checking Status...");
 		my $host = `hostname`;
+		my $host1= "127.0.0.1";
 		chomp($host);
 		$host .= ":11211";
+		$host1 .= ":11211";
 		my $sock = IO::Socket::INET->new(PeerAddr => $host, Proto => 'tcp');
-		if ( $sock ) {
+		my $sock1 = IO::Socket::INET->new(PeerAddr => $host1, Proto => 'tcp');
+		if ( $sock || $sock1 ) {
 			blackAndWhite("MemCachedConnection",0);
-			$sock->close();	
+			if ( $sock ) { $sock->close(); } else { $sock1->close(); }
 		} else {
 			blackAndWhite("MemCachedConnection",1);
 		}
@@ -276,6 +282,10 @@ sub checkKeystone {
             blackAndWhite("KeystoneConnection",0);
 	    my @token = split(' ',@data[4]);
 	    $config->{'setup'}->{'keystone-token'} = @token[3];
+	    my @token = split(' ',@data[5]);
+	    $config->{'setup'}->{'keystone-tenant'} = @token[3];
+	    my @token = split(' ',@data[6]);
+	    $config->{'setup'}->{'keystone-user'} = @token[3];
         } 
     }
 }
@@ -371,35 +381,89 @@ sub checkNeutron {
 }
 
 sub checkCinder {
-    my @vgcheck = `$config->{'setup'}->{'lvm-cmd-line'} $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-    if ($? == 0 ) {
-        nimLog(1, "Cinder volume detected. Checking status...");
-        my $vgSize = `vgs -o size --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-        my $vgFree = `vgs -o free --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-        my $alarm = ($vgSize/100)*$config->{'setup'}->{'volume-alarm'};
-        if ( $vgFree < $alarm ) {
-            if (!defined($config->{'status'}->{'volumeGroup'}->{'samples'})){$config->{'status'}->{'volumeGroup'}->{'samples'} = 0;};
-            $config->{'status'}->{'volumeGroup'}->{'samples'}++;
-            if ($config->{'status'}->{'volumeGroup'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 0){
-                    my $alert_string = "Warning Volume Group $config->{'setup'}->{'volume-name'} size is under $config->{'setup'}->{'volume-alarm'}\% of $vgSize";
-                    nimLog(1, $alert_string);
-                    nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
-                    $config->{'status'}->{'volumeGroup'}->{'triggered'} = 1;
-                }
-            } else {
-                $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
-                if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 1){
-                    my $alert_string = "Volume Group alert has cleared";
-                    nimLog(1, $alert_string);
-                    nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
-                    $config->{'status'}->{'volumeGroup'}->{'triggered'} = 0;
-                }
-           }     
-        }
-    } else {
-        nimLog(1, "Cinder volume NOT detected. Skipping.");
-    }
+	my $host = `hostname`;
+	my @data;
+	my $localApi;
+	chomp($host);
+	if ( -e '/etc/init.d/cinder-api' || -e '/etc/init.d/openstack-cinder-api' ){
+		nimLog(1, "Local APIs found. Checking");
+		$localApi = 1;
+		@data = `curl -f -s -i http://$host:8776/v1/$config->{'setup'}->{'keystone-tenant'}/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $config->{'setup'}->{'keystone-token'}"`;
+	} else {
+		nimLog(1, "Local APIs NOT found. Checking Cinder via VIP");
+		$localApi = 0;
+		my @vip = split('5000',$config->{'setup'}->{'os-auth-url'});
+		@data = `curl -f -s -i $vip[0]:8776/v1/$config->{'setup'}->{'keystone-tenant'}/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $config->{'setup'}->{'keystone-token'}"`;
+	}
+	if ($? != 0 || !@data) {
+		if ( $localApi == 1 ){
+			blackAndWhite("CinderConnection",1);
+		}
+	} else {
+		blackAndWhite("CinderConnection",0);
+		nimLog(1, 'Returned '.scalar(@data).' lines from Cinder-Api');
+		my $last = pop @data;
+		my @values = split('>',$last);
+		shift @values;
+		pop @values;
+		foreach (@values){
+			my @line = split(' ',$_);
+			chop($line[5]);
+			if ($line[5] =~ $host){
+				nimLog(1, "Checking Cinder Service ".$line[2].".....");
+				if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;};
+				if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;};
+				if ($line[1] =~ "enabled" && $line[4] =~ "up"){
+					$config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;
+					if ( $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} == 1 ){
+						my $alert_string = "Cinder Service $line[2] has checked in. This alert is clear.";
+						nimLog(1, $alert_string);
+						nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cinderservice"));
+						$config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;
+					}
+				} else {
+					$config->{'status'}->{'cinder'}->{$line[2]}->{'samples'}++;
+					if ($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+						if ($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} == 0){
+							my $alert_string = "Warning Cinder Service $line[2] has not checked in. Please investigate.";
+							nimLog(1, $alert_string);
+							nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cinderservice"));
+							$config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 1;
+						}
+					}
+				}
+			}
+		}
+	}
+	my @vgcheck = `$config->{'setup'}->{'lvm-cmd-line'} $config->{'setup'}->{'volume-name'} 2>/dev/null`;
+	if ($? == 0 ) {
+		nimLog(1, "Cinder volume detected. Checking status...");
+		my $vgSize = `vgs -o size --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
+		my $vgFree = `vgs -o free --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
+		my $alarm = ($vgSize/100)*$config->{'setup'}->{'volume-alarm'};
+		if ( $vgFree < $alarm ) {
+			if (!defined($config->{'status'}->{'volumeGroup'}->{'samples'})){$config->{'status'}->{'volumeGroup'}->{'samples'} = 0;};
+			$config->{'status'}->{'volumeGroup'}->{'samples'}++;
+			if ($config->{'status'}->{'volumeGroup'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+				if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 0){
+					my $alert_string = "Warning Volume Group $config->{'setup'}->{'volume-name'} size is under $config->{'setup'}->{'volume-alarm'}\% of $vgSize";
+					nimLog(1, $alert_string);
+					nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+					$config->{'status'}->{'volumeGroup'}->{'triggered'} = 1;
+				}
+			}
+		} else {
+			$config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
+			if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 1){
+				my $alert_string = "Volume Group alert has cleared";
+				nimLog(1, $alert_string);
+				nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+				$config->{'status'}->{'volumeGroup'}->{'triggered'} = 0;
+			}
+		}     
+	} else {
+		nimLog(1, "Cinder volume NOT detected. Skipping.");
+	}
 }
 
 sub checkKvm {

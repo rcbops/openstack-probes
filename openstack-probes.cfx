@@ -94,4 +94,9 @@
       clear = MemCached is now responding as expected. This alert is now clear.
       level = 4
    </MemCachedConnection>
+   <CinderConnection>
+      text = Local Cinder-Api Service did not respond correctly. Please investigate.
+      clear = Local Cinder-Api Service is now responding as expected. This alert is now clear.
+      level = 4
+   </CinderConnection>
 </messages>
