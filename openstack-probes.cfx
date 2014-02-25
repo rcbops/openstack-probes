@@ -94,9 +94,29 @@
       clear = MemCached is now responding as expected. This alert is now clear.
       level = 4
    </MemCachedConnection>
+   <NoVncProxyConnection>
+      text = Local Nova-NoVncProxy Service did not respond correctly. Please investigate.
+      clear = Local Nova-NoVncProxy Service is now responding as expected. This alert is now clear.
+      level = 4
+   </NoVncProxyConnection>
+   <HorizonConnection>
+      text = Local Apache Service did not respond correctly. Please investigate.
+      clear = Local Apache Service is now responding as expected. This alert is now clear.
+      level = 4
+   </HorizonConnection>
    <CinderConnection>
       text = Local Cinder-Api Service did not respond correctly. Please investigate.
       clear = Local Cinder-Api Service is now responding as expected. This alert is now clear.
       level = 4
    </CinderConnection>
+   <OvsSwitchdConnection>
+      text = Local ovs-vswitchd Service did not respond correctly. Please investigate.
+      clear = Local ovs-vswitchd Service is now responding as expected. This alert is now clear.
+      level = 5
+   </OvsSwitchdConnection>
+   <OvsDBConnection>
+      text = Local ovsdb-server Service did not respond correctly. Please investigate.
+      clear = Local ovsdb-server Service is now responding as expected. This alert is now clear.
+      level = 5
+   </OvsDBConnection>
 </messages>

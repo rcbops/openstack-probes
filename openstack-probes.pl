@@ -11,7 +11,7 @@ use Switch;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.16';
+my $version = '0.17';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -70,6 +70,18 @@ sub blackAndWhite {
         case "CinderConnection" {
             $logMessage = "Something is wrong!!! Local Cinder-Api Service did not respond correctly.";
         }
+        case "NoVncProxyConnection" {
+            $logMessage = "Something is wrong!!! Local Nova-NoVncProxy Service did not respond correctly.";
+        }
+        case "HorizonConnection" {
+            $logMessage = "Something is wrong!!! Local Apache Service did not respond correctly.";
+        }
+        case "OvsDBConnection" {
+            $logMessage = "Something is wrong!!! Local ovsdb-server Service did not respond correctly.";
+        }
+        case "OvsSwitchdConnection" {
+            $logMessage = "Something is wrong!!! Local ovs-vswitchd Service did not respond correctly.";
+        }
         else {
             $logMessage = "Something is really wrong!!!";
         }
@@ -96,6 +108,48 @@ sub blackAndWhite {
     return
 }
 
+sub checkOvs {
+	if (-e '/usr/bin/ovsdb-client'){
+		nimLog(1, "Checking ovsdb-server status...");
+		my @data = `ovsdb-client list-dbs`;
+		if ( $? != 0 || !@data ){
+			blackAndWhite("OvsDBConnection",1);
+		} else {
+			blackAndWhite("OvsDBConnection",0);
+		}
+		@data = `ovs-vsctl list-br`;
+		if ( $? != 0 || !@data ){
+			blackAndWhite("OvsSwitchdConnection",1);
+		} else {
+			blackAndWhite("OvsSwitchdConnection",0);
+		}
+	} else {
+		nimLog(1, "OVS NOT detected. Skipping...");
+	}
+}
+
+sub checkHorizon {
+	if (-e '/etc/openstack-dashboard'){
+		nimLog(1, "Horizon found checking status...");
+		my $host = `hostname`;
+		chomp($host);
+		my @data = `curl -f -s http://$host:6080/vnc_auto.html`;
+		if ( $? != 0 || !@data ){
+			blackAndWhite("NoVncProxyConnection",1);
+		} else {
+			blackAndWhite("NoVncProxyConnection",0);
+		}
+		@data = `curl -f -s -k https://$host`;
+		if ( $? != 0 || !@data ){
+			blackAndWhite("HorizonConnection",1);
+		} else {
+			blackAndWhite("HorizonConnection",0);
+		}
+	} else {
+		nimLog(1, "Horizon NOT detected. Skipping...");
+	}
+}
+
 sub checkMemcached {
 	if ( -e '/etc/init.d/memcached' ) {
         	nimLog(1, "MemCached Detected. Checking Status...");
@@ -120,46 +174,34 @@ sub checkMemcached {
 sub checkMetadata {
         nimLog(1, "Checking Neutron-Metadata Services...");
 	my @data;
-	if ( -e '/usr/bin/neutron' ) {
-		@data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
-	} else {
-		@data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
-	}
-        if ($? != 0 || !@data) {
-		blackAndWhite("NeutronConnection",1);
-	} else {
-		blackAndWhite("NeutronConnection",0);
-		nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum net-list');
-		shift @data;
-		shift @data;
-		shift @data;
-		pop @data;
-		foreach (@data) {
-            		my @values = split('\|',$_);
-			@values[1] =~ s/^\s*(.*?)\s*$/$1/;
-			my @response = `ip netns exec qdhcp-@values[1] curl -f -s 169.254.169.254`;
-			if ( $? ne "5632" ) {
-				if (!defined($config->{'status'}->{@values[1]}->{'samples'})){$config->{'status'}->{@values[1]}->{'samples'} = 0;};
-				$config->{'status'}->{@values[1]}->{'samples'}++;
-				if ($config->{'status'}->{@values[1]}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-					if ($config->{'status'}->{'neutronMetadata'}->{'triggered'} == 0){
-						nimLog(1, "Critical alert on (neutron/quantum)-metadata service for network @values[1]");
-						my $alert_string = "[CRITICAL] (Neutron/Quantum)-metadata Service attached to network @values[1] is not responding. Please investigate.";
-						nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
-						$config->{'status'}->{'neutronMetadata'}->{'triggered'} = 1;
-					}
-				}
-			} else {
-				$config->{'status'}->{@values[1]}->{'samples'} = 0;
-				if ($config->{'status'}->{'neutronMetadata'}->{'triggered'} == 1){
-					nimLog(1, "(Neutron/Quantum)-metadata service for network @values[1] has checked in.");
-					my $alert_string = "(Neutron/Quantum)-metadata Service for network @values[1] Alert clear";
-					nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
-					$config->{'status'}->{'neutronMetadata'}->{'triggered'} = 0;
+	if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp`; }
+	if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp`; }
+	nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum DHCP');
+	foreach my $value (@data) {
+		$value =~ s/^\s*(.*?)\s*$/$1/;
+		my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
+		if ( $? ne "5632" ) {
+			if (!defined($config->{'status'}->{$value}->{'samples'})){$config->{'status'}->{$value}->{'samples'} = 0;};
+			if (!defined($config->{'status'}->{$value}->{'triggered'})){$config->{'status'}->{$value}->{'triggered'} = 0;};
+			$config->{'status'}->{$value}->{'samples'}++;
+			if ($config->{'status'}->{$value}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+				if ($config->{'status'}->{$value}->{'triggered'} == 0){
+					nimLog(1, "Critical alert on (neutron/quantum)-metadata service for network $value");
+					my $alert_string = "[CRITICAL] (Neutron/Quantum)-metadata Service attached to network $value is not responding. Please investigate.";
+					nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
+					$config->{'status'}->{$value}->{'triggered'} = 1;
 				}
 			}
+		} else {
+			$config->{'status'}->{$value}->{'samples'} = 0;
+			if ($config->{'status'}->{$value}->{'triggered'} == 1){
+				nimLog(1, "(Neutron/Quantum)-metadata service for network $value has checked in.");
+				my $alert_string = "(Neutron/Quantum)-metadata Service for network $value Alert clear";
+				nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
+				$config->{'status'}->{$value}->{'triggered'} = 0;
+			}
 		}
-        }
+	}
 }
 
 sub checkRabbit {
@@ -410,7 +452,7 @@ sub checkCinder {
 			my @line = split(' ',$_);
 			chop($line[5]);
 			if ($line[5] =~ $host){
-				nimLog(1, "Checking Cinder Service ".$line[2].".....");
+				nimLog(1, "Checking Cinder Service ".$line[2]."...");
 				if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;};
 				if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;};
 				if ($line[1] =~ "enabled" && $line[4] =~ "up"){
@@ -500,6 +542,8 @@ sub timeout {
 	checkCinder();
 	checkGlance();
 	checkKvm();
+	checkHorizon();
+	checkOvs();
 }
 
 sub checkMysql {
