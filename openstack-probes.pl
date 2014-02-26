@@ -8,10 +8,13 @@ use Nimbus::Session;
 use Nimbus::CFG;
 use Data::Dumper;
 use Switch;
+use Socket;
 $| = 1;
 
+
+
 my $prgname = 'openstack-probes';
-my $version = '0.17';
+my $version = '0.19';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -133,13 +136,14 @@ sub checkHorizon {
 		nimLog(1, "Horizon found checking status...");
 		my $host = `hostname`;
 		chomp($host);
-		my @data = `curl -f -s http://$host:6080/vnc_auto.html`;
+		my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+		my @data = `curl -f -s http://$address:6080/vnc_auto.html`;
 		if ( $? != 0 || !@data ){
 			blackAndWhite("NoVncProxyConnection",1);
 		} else {
 			blackAndWhite("NoVncProxyConnection",0);
 		}
-		@data = `curl -f -s -k https://$host`;
+		@data = `curl -f -s -k https://$address`;
 		if ( $? != 0 || !@data ){
 			blackAndWhite("HorizonConnection",1);
 		} else {
@@ -367,6 +371,7 @@ sub checkNeutron {
 	my $host = `hostname`;
 	chomp($host);
 	if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
+		checkOvs();
 		nimLog(1, "Neutron/Quantum agent(s) detected. Checking status...");
 		if ( -e '/usr/bin/neutron' ) {
 			@data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
@@ -543,7 +548,6 @@ sub timeout {
 	checkGlance();
 	checkKvm();
 	checkHorizon();
-	checkOvs();
 }
 
 sub checkMysql {
