@@ -11,10 +11,8 @@ use Switch;
 use Socket;
 $| = 1;
 
-
-
 my $prgname = 'openstack-probes';
-my $version = '0.19';
+my $version = '0.20';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -178,8 +176,8 @@ sub checkMemcached {
 sub checkMetadata {
         nimLog(1, "Checking Neutron-Metadata Services...");
 	my @data;
-	if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp`; }
-	if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp`; }
+	if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp | grep -v "lease_relay"`; }
+	if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp | grep -v "lease_relay"`; }
 	nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum DHCP');
 	foreach my $value (@data) {
 		$value =~ s/^\s*(.*?)\s*$/$1/;
