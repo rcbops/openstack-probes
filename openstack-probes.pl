@@ -187,21 +187,52 @@ sub checkMemcached {
 
 sub checkMetadata {
     nimLog(1, "Checking Neutron-Metadata Services...");
-	my @dhcpdata;
-	if (-e '/var/lib/neutron/dhcp'){ @dhcpdata = `ls /var/lib/neutron/dhcp | grep -v "lease_relay"`; }
-	if (-e '/var/lib/quantum/dhcp'){ @dhcpdata = `ls /var/lib/quantum/dhcp | grep -v "lease_relay"`; }
 
+    # DHCP things
+    my @dhcpdata;
+    if (-e '/var/lib/neutron/dhcp'){ @dhcpdata = `ls /var/lib/neutron/dhcp | grep -v "lease_relay"`; }
+    if (-e '/var/lib/quantum/dhcp'){ @dhcpdata = `ls /var/lib/quantum/dhcp | grep -v "lease_relay"`; }
+    chomp(@dhcpdata);
+    nimLog(1, 'Returned '.scalar(@dhcpdata).' lines from Neutron/Quantum DHCP');
+    # Build an array of only uuids
+    my @dhcpuuids = ();
+    foreach my $str (@dhcpdata) {
+        if ( $str =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) {
+            push(@dhcpuuids, lc($1));
+        }
+    }
+
+    # Net list things
     my @netlistdata;
     if ( -e '/usr/bin/neutron' ) {
         @netlistdata = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
     } else {
         @netlistdata = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
     }
+    chomp(@netlistdata);
+    nimLog(1, 'Returned '.scalar(@netlistdata).' lines from Neutron/Quantum Net List');
+    my @netlistuuids = ();
+    for my $str (@netlistdata) {
+        my @tokens = split(' ', $str);
+        if (scalar(@tokens) > 1) {
+            if (@tokens[1] =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) {
+                push(@netlistuuids, lc($1));
+            }
+        }
+    }
 
-    # Shot in the dark
-    my @data= grep( $dhcpdata{$_}, @netlistdata );
+    # Merge the uuids into one array if in both
+    my @data = ();
+    foreach my $dhcpuuid (@dhcpuuids) {
+        foreach my $netlistuuid (@netlistuuids) {
+            if ($dhcpuuid eq $netlistuuid) {
+                push(@data, $dhcpuuid);
+                last;
+            }
+        }
+    }
+    nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum Intersection of DHCP and Net List');
 
-	nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum DHCP');
 	foreach my $value (@data) {
 		$value =~ s/^\s*(.*?)\s*$/$1/;
 		my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
