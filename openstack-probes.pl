@@ -13,6 +13,7 @@
 #GNU General Public License for more details.
 
 use strict;
+use Array::Utils qw(:all);
 use IO::Socket::INET;
 use Getopt::Std;
 use Nimbus::API;
@@ -187,9 +188,22 @@ sub checkMemcached {
 
 sub checkMetadata {
         nimLog(1, "Checking Neutron-Metadata Services...");
-	my @data;
-	if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp | grep -v "lease_relay"`; }
-	if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp | grep -v "lease_relay"`; }
+	my @dhcpdata;
+	if (-e '/var/lib/neutron/dhcp'){ @dhcpdata = `ls /var/lib/neutron/dhcp | grep -v "lease_relay"`; }
+	if (-e '/var/lib/quantum/dhcp'){ @dhcpdata = `ls /var/lib/quantum/dhcp | grep -v "lease_relay"`; }
+
+    my @netlistdata;
+    if ( -e '/usr/bin/neutron' ) {
+        @netlistdata = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
+    } else {
+        @netlistdata = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
+    }
+
+    my @data;
+    # If you want the elements in both
+    @data = intersect(@dhcpdata, @netstatdata);
+
+    my @data2;
 	nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum DHCP');
 	foreach my $value (@data) {
 		$value =~ s/^\s*(.*?)\s*$/$1/;
