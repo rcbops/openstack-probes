@@ -232,7 +232,6 @@ sub checkMetadata {
         }
     }
     nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum Intersection of DHCP and Net List');
-
 	foreach my $value (@data) {
 		$value =~ s/^\s*(.*?)\s*$/$1/;
 		my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
