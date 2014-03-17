@@ -13,18 +13,19 @@
 #GNU General Public License for more details.
 
 use strict;
+use lib ('/opt/nimsoft/perllib');
 use IO::Socket::INET;
 use Getopt::Std;
 use Nimbus::API;
 use Nimbus::Session;
 use Nimbus::CFG;
 use Data::Dumper;
-use Switch;
+use feature "switch";
 use Socket;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.21';
+my $version = '0.22';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -55,50 +56,21 @@ sub suppression_active {
 sub blackAndWhite {
     my ($message, $goodOrBad) = @_;
     my $logMessage;
-    switch ($message) {
-        case "RabbitConnection" {
-            $logMessage = "RabbitMQ not reachable....Is the service running?";
-        }
-        case "NovaConnection" {
-            $logMessage = "Something is wrong!!! Nova-manage did not respond correctly.";
-        }
-        case "KeystoneConnection" {
-            $logMessage = "Something is wrong!!! Keystone did not respond correctly.";
-        }
-        case "GlanceConnection" {
-            $logMessage = "Something is wrong!!! Glance did not respond correctly.";
-        }
-        case "NeutronServerConnection" {
-            $logMessage = "Something is wrong!!! Local Neutron/Quantum server did not respond correctly.";
-        }
-        case "NeutronConnection" {
-            $logMessage = "Something is wrong!!! Neutron/Quantum did not respond correctly.";
-        }
-        case "KvmConnection" {
-            $logMessage = "Something is wrong!!! LibVirt did not respond correctly.";
-        }
-        case "MemCachedConnection" {
-            $logMessage = "Something is wrong!!! MemCached did not respond correctly.";
-        }
-        case "CinderConnection" {
-            $logMessage = "Something is wrong!!! Local Cinder-Api Service did not respond correctly.";
-        }
-        case "NoVncProxyConnection" {
-            $logMessage = "Something is wrong!!! Local Nova-NoVncProxy Service did not respond correctly.";
-        }
-        case "HorizonConnection" {
-            $logMessage = "Something is wrong!!! Local Apache Service did not respond correctly.";
-        }
-        case "OvsDBConnection" {
-            $logMessage = "Something is wrong!!! Local ovsdb-server Service did not respond correctly.";
-        }
-        case "OvsSwitchdConnection" {
-            $logMessage = "Something is wrong!!! Local ovs-vswitchd Service did not respond correctly.";
-        }
-        else {
-            $logMessage = "Something is really wrong!!!";
-        }
-
+    given ($message) {
+        when (/^RabbitConnection/) { $logMessage = "RabbitMQ not reachable....Is the service running?" }
+        when (/^NovaConnection/) { $logMessage = "Something is wrong!!! Nova-manage did not respond correctly." }
+        when (/^KeystoneConnection/) { $logMessage = "Something is wrong!!! Keystone did not respond correctly." }
+        when (/^GlanceConnection/) { $logMessage = "Something is wrong!!! Glance did not respond correctly." }
+        when (/^NeutronServerConnection/) { $logMessage = "Something is wrong!!! Local Neutron/Quantum server did not respond correctly." }
+        when (/^NeutronConnection/) { $logMessage = "Something is wrong!!! Neutron/Quantum did not respond correctly." }
+        when (/^KvmConnection/) { $logMessage = "Something is wrong!!! LibVirt did not respond correctly." }
+        when (/^MemCachedConnection/) { $logMessage = "Something is wrong!!! MemCached did not respond correctly." }
+        when (/^CinderConnection/) { $logMessage = "Something is wrong!!! Local Cinder-Api Service did not respond correctly." }
+        when (/^NoVncProxyConnection/) { $logMessage = "Something is wrong!!! Local Nova-NoVncProxy Service did not respond correctly." }
+        when (/^HorizonConnection/) { $logMessage = "Something is wrong!!! Local Apache Service did not respond correctly." }
+        when (/^OvsDBConnection/) { $logMessage = "Something is wrong!!! Local ovsdb-server Service did not respond correctly." }
+        when (/^OvsSwitchdConnection/) { $logMessage = "Something is wrong!!! Local ovs-vswitchd Service did not respond correctly." }
+        Default: { $logMessage = "Something is really wrong!!!" }
     }
     if ( $goodOrBad == 1 ) {
         nimLog(1, $logMessage);
