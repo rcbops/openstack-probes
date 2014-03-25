@@ -1,6 +1,7 @@
 <setup>
    loglevel = 0
    logfile = openstack-probes.log
+   testing = 0
    interval = 300
    hostname =
    port = 3306
@@ -119,4 +120,23 @@
       clear = Local ovsdb-server Service is now responding as expected. This alert is now clear.
       level = 5
    </OvsDBConnection>
-</messages>
+   <SwiftProxyConnection>
+      text = Local Swift Proxy-Server did not respond correctly. Please investigate.
+      clear = Local Swift Proxy-Server is now responding as expected. This alert is now clear.
+      level = 5
+   </SwiftProxyConnection>
+   <SwiftAccountConnection>
+      text = Local Swift Account-Server did not respond correctly. Please investigate.
+      clear = Local Swift Account-Server is now responding as expected. This alert is now clear.
+      level = 5
+   </SwiftAccountConnection>
+   <SwiftContainerConnection>
+      text = Local Swift Container-Server did not respond correctly. Please investigate.
+      clear = Local Swift Container-Server is now responding as expected. This alert is now clear.
+      level = 5
+   </SwiftContainerConnection>
+   <SwiftObjectConnection>
+      text = Local Swift Object-Server did not respond correctly. Please investigate.
+      clear = Local Swift Object-Server is now responding as expected. This alert is now clear.
+      level = 5
+   </SwiftObjectConnection>

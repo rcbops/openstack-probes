@@ -22,10 +22,13 @@ use Nimbus::CFG;
 use Data::Dumper;
 use feature "switch";
 use Socket;
+use lib './lib';
+use IniFiles;
+
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.22';
+my $version = '0.23';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -70,8 +73,14 @@ sub blackAndWhite {
         when (/^HorizonConnection/) { $logMessage = "Something is wrong!!! Local Apache Service did not respond correctly." }
         when (/^OvsDBConnection/) { $logMessage = "Something is wrong!!! Local ovsdb-server Service did not respond correctly." }
         when (/^OvsSwitchdConnection/) { $logMessage = "Something is wrong!!! Local ovs-vswitchd Service did not respond correctly." }
+        when (/^SwiftProxyConnection/) { $logMessage = "Something is wrong!!! Local Swift Proxy-Server did not respond correctly." }
+        when (/^SwiftAccountConnection/) { $logMessage = "Something is wrong!!! Local Swift Account-Server did not respond correctly." }
+        when (/^SwiftContainerConnection/) { $logMessage = "Something is wrong!!! Local Swift Container-Server did not respond correctly." }
+        when (/^SwiftObjectConnection/) { $logMessage = "Something is wrong!!! Local Swift Object-Server did not respond correctly." }
         Default: { $logMessage = "Something is really wrong!!!" }
     }
+    if (!defined($config->{'status'}->{$message}->{'samples'})){$config->{'status'}->{$message}->{'samples'} = 0;};
+    if (!defined($config->{'status'}->{$message}->{'triggered'})){$config->{'status'}->{$message}->{'triggered'} = 0;};
     if ( $goodOrBad == 1 ) {
         nimLog(1, $logMessage);
         $config->{'status'}->{$message}->{'samples'}++;
@@ -159,77 +168,93 @@ sub checkMemcached {
 
 sub checkMetadata {
     nimLog(1, "Checking Neutron-Metadata Services...");
-
-    # DHCP things
-    my @dhcpdata;
-    if (-e '/var/lib/neutron/dhcp'){ @dhcpdata = `ls /var/lib/neutron/dhcp | grep -v "lease_relay"`; }
-    if (-e '/var/lib/quantum/dhcp'){ @dhcpdata = `ls /var/lib/quantum/dhcp | grep -v "lease_relay"`; }
-    chomp(@dhcpdata);
-    nimLog(1, 'Returned '.scalar(@dhcpdata).' lines from Neutron/Quantum DHCP');
-    # Build an array of only uuids
-    my @dhcpuuids = ();
-    foreach my $str (@dhcpdata) {
+    my @data;
+    if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp`; }
+    if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp`; }
+    chomp(@data);
+    nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum DHCP');
+    my @lsuuids;
+    foreach my $str (@data) {
         if ( $str =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) {
-            push(@dhcpuuids, lc($1));
+            push(@lsuuids, lc($1));
         }
     }
-
-    # Net list things
-    my @netlistdata;
+    my @data;
     if ( -e '/usr/bin/neutron' ) {
-        @netlistdata = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
+        @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
     } else {
-        @netlistdata = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
+        @data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} net-list 2>/dev/null`;
     }
-    chomp(@netlistdata);
-    nimLog(1, 'Returned '.scalar(@netlistdata).' lines from Neutron/Quantum Net List');
-    my @netlistuuids = ();
-    for my $str (@netlistdata) {
+    chomp(@data);
+    nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum Net List');
+    my @netUuids;
+    for my $str (@data) {
         my @tokens = split(' ', $str);
         if (scalar(@tokens) > 1) {
             if (@tokens[1] =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) {
-                push(@netlistuuids, lc($1));
+                push(@netUuids, lc($1));
             }
         }
     }
-
-    # Merge the uuids into one array if in both
-    my @data = ();
-    foreach my $dhcpuuid (@dhcpuuids) {
-        foreach my $netlistuuid (@netlistuuids) {
-            if ($dhcpuuid eq $netlistuuid) {
-                push(@data, $dhcpuuid);
+    my @logicalAnd;
+    foreach my $dhcpuuid (@lsuuids) {
+        foreach my $netuuid (@netUuids) {
+            if ($dhcpuuid eq $netuuid) {
+                push(@logicalAnd, $dhcpuuid);
                 last;
             }
         }
     }
-    nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum Intersection of DHCP and Net List');
+    nimLog(1, 'Returned '.scalar(@logicalAnd).' lines from Neutron/Quantum Intersection of DHCP and Net List');
 
-        foreach my $value (@data) {
-                $value =~ s/^\s*(.*?)\s*$/$1/;
-                my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
-                if ( $? ne "5632" ) {
-                        if (!defined($config->{'status'}->{$value}->{'samples'})){$config->{'status'}->{$value}->{'samples'} = 0;};
-                        if (!defined($config->{'status'}->{$value}->{'triggered'})){$config->{'status'}->{$value}->{'triggered'} = 0;};
-                        $config->{'status'}->{$value}->{'samples'}++;
-                        if ($config->{'status'}->{$value}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                                if ($config->{'status'}->{$value}->{'triggered'} == 0){
-                                        nimLog(1, "Critical alert on (neutron/quantum)-metadata service for network $value");
-                                        my $alert_string = "[CRITICAL] (Neutron/Quantum)-metadata Service attached to network $value is not responding. Please investigate.";
-                                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
-                                        $config->{'status'}->{$value}->{'triggered'} = 1;
-                                }
-                        }
-                } else {
-                        $config->{'status'}->{$value}->{'samples'} = 0;
-                        if ($config->{'status'}->{$value}->{'triggered'} == 1){
-                                nimLog(1, "(Neutron/Quantum)-metadata service for network $value has checked in.");
-                                my $alert_string = "(Neutron/Quantum)-metadata Service for network $value Alert clear";
-                                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
-                                $config->{'status'}->{$value}->{'triggered'} = 0;
-                        }
+    foreach my $value (@logicalAnd) {
+        if (!defined($config->{'status'}->{$value}->{'samples'})){$config->{'status'}->{$value}->{'samples'} = 0;};
+        if (!defined($config->{'status'}->{$value}->{'triggered'})){$config->{'status'}->{$value}->{'triggered'} = 0;};
+        if (!defined($config->{'status'}->{'metadata'}->{'try'})){$config->{'status'}->{'metadata'}->{'try'} = 0;};
+        $value =~ s/^\s*(.*?)\s*$/$1/;
+        my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
+        if ( $? ne "5632" ) {
+            $config->{'status'}->{$value}->{'samples'}++;
+            if ($config->{'status'}->{$value}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{$value}->{'triggered'} == 0){
+                    nimLog(1, "Critical alert on (neutron/quantum)-metadata service for network $value");
+                    my $alert_string = "[CRITICAL] (Neutron/Quantum)-metadata Service attached to network $value is not responding. Please investigate. I have already tried restarting dnsmasq and dhcp-agent";
+                    nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
+                    $config->{'status'}->{$value}->{'triggered'} = 1;
                 }
+            } else {
+                my $sampleTry = $config->{'setup'}->{'samples'} -1;
+                if ($config->{'status'}->{$value}->{'samples'} = $sampleTry ) { 
+                    $config->{'status'}->{'metadata'}->{'try'} = 1;
+                }
+            }
+        } else {
+            $config->{'status'}->{$value}->{'samples'} = 0;
+            if ($config->{'status'}->{$value}->{'triggered'} == 1){
+                nimLog(1, "(Neutron/Quantum)-metadata service for network $value has checked in.");
+                my $alert_string = "(Neutron/Quantum)-metadata Service for network $value Alert clear";
+                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronmetadataservice"));
+                $config->{'status'}->{$value}->{'triggered'} = 0;
+            }
+            $config->{'status'}->{'metadata'}->{'try'} = 0;
         }
+    }
+    if ($config->{'status'}->{'metadata'}->{'try'} == 1){
+        nimLog(1,"Metadata is not working correctly. I'm going to try something....");
+        nimLog(1,"----Killing all dnsmasq processes");
+        my @try = `pkill dnsmasq`;
+        if ( $? != 0 ){
+            nimLog(1, "Well that didn't work. Stopping before I do some real damage.");
+            return;
+        }
+        if ( -e '/etc/init.d/quantum-dhcp-agent' ){ @try = `/etc/init.d/quantum-dhcp-agent restart`; }
+        if ( -e '/etc/init.d/neutron-dhcp-agent' ){ @try = `/etc/init.d/neutron-dhcp-agent restart`; }
+        if ( $? != 0 ){
+            nimLog(1, "Well that didn't work. Stopping before I do some real damage.");
+            return
+        }
+        nimLog(1,"Operation completed successfully. Will check status on next pass.");
+    }
 }
 
 sub checkRabbit {
@@ -320,6 +345,7 @@ sub checkNova {
                     if ($config->{'status'}->{'nova'}->{'triggered'} == 0){
                         nimLog(1, "Critical alert on nova service $key");
                         my $alert_string = "[CRITICAL] Nova Service $key is not checking in. Please investigate.";
+
                         nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"novaservice"));
                         $config->{'status'}->{'nova'}->{'triggered'} = 1;
                     }
@@ -360,6 +386,65 @@ sub checkKeystone {
     }
 }
 
+sub checkSwiftProxy {
+    nimLog(1, "Swift Proxy found checking status...");
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:8080/healthcheck`;
+    if ( $? != 0 || !@data ){
+        blackAndWhite("SwiftProxyConnection",1);
+    } else {
+        blackAndWhite("SwiftProxyConnection",0);
+    }
+}
+
+sub checkSwiftAccount {
+    nimLog(1, "Swift Account-Server found checking status...");
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:6002/healthcheck`;
+    if ( $? != 0 || !@data ){
+        blackAndWhite("SwiftAccountConnection",1);
+    } else {
+        blackAndWhite("SwiftAccountConnection",0);
+    }
+}
+
+sub checkSwiftContainer {
+    nimLog(1, "Swift Container-Server found checking status...");
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:6001/healthcheck`;
+    if ( $? != 0 || !@data ){
+        blackAndWhite("SwiftContainerConnection",1);
+    } else {
+        blackAndWhite("SwiftContainerConnection",0);
+    }
+}
+
+sub checkSwiftObject {
+    nimLog(1, "Swift Object-Server found checking status...");
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:6000/healthcheck`;
+    if ( $? != 0 || !@data ){
+        blackAndWhite("SwiftObjectConnection",1);
+    } else {
+        blackAndWhite("SwiftObjectConnection",0);
+    }
+}
+
+sub checkSwift {
+    if ( -e '/etc/rc3.d/S98openstack-swift-proxy' || -e '/etc/init/swift-proxy.conf' ) { checkSwiftProxy() } else { nimLog(1, "Swift Proxy NOT detected. Skipping...") }; 
+    if ( -e '/etc/rc3.d/S98openstack-swift-account' || -e '/etc/init/swift-account.conf' ) { checkSwiftAccount() } else { nimLog(1, "Swift Account-Server NOT detected. Skipping...") };
+    if ( -e '/etc/rc3.d/S98openstack-swift-container' || -e '/etc/init/swift-container.conf' ) { checkSwiftContainer() } else { nimLog(1, "Swift Container-Server NOT detected. Skipping...") };
+    if ( -e '/etc/rc3.d/S98openstack-swift-object' || -e '/etc/init/swift-object.conf' ) { checkSwiftObject() } else { nimLog(1, "Swift Object-Server NOT detected. Skipping...") };
+}
+
 sub checkGlance {
     my @data;
     if (-e '/usr/bin/glance-manage' ){
@@ -391,150 +476,154 @@ sub checkNeutronServer {
 }
 
 sub checkNeutron {
-        my @data;
-        my $host = `hostname`;
-        chomp($host);
-        if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
-                checkOvs();
-                nimLog(1, "Neutron/Quantum agent(s) detected. Checking status...");
-                if ( -e '/usr/bin/neutron' ) {
-                        @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
-                } else {
-                        @data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
-                }
-                if ($? != 0 || !@data) {
-                        blackAndWhite("NeutronConnection",1);
-                } else {
-                        blackAndWhite("NeutronConnection",0);
-                        nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum');
-                        my @service_list;
-                        shift @data;
-                        shift @data;
-                        shift @data;
-                        pop @data;
-                        foreach my $line (@data) {
-                                my $service = {};
-                                my @values = split('\|',$line);
-                                if (@values[3] =~ /$host/) {
-                                        $service->{@values[2]} = @values[4];
-                                        push @service_list,$service;
-                                }
-                        }
-                        for my $i (@service_list) {
-                                while ( my ($key, $value) = each %{$i} ) {
-                                        if ( $key =~ m/DHCP/){ checkMetadata() };
-                                        if ( $value eq 'XXX' || $value eq 'xxx' ) {
-                                                if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
-                                                $config->{'status'}->{$key}->{'samples'}++;
-                                                if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                                                        if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
-                                                                nimLog(1, "Critical alert on neutron service $key");
-                                                                my $alert_string = "[CRITICAL] Neutron/Quantum Service $key is not checking in. Please investigate.";
-                                                                nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
-                                                                $config->{'status'}->{'neutron'}->{'triggered'} = 1;
-                                                        }
-                                                }
-                                        } else {
-                                                $config->{'status'}->{$key}->{'samples'} = 0;
-                                                if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
-                                                        nimLog(1, "Neutron/Quantum service $key has checked in.");
-                                                        my $alert_string = "Neutron Service ($key) Alert clear";
-                                                        nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
-                                                        $config->{'status'}->{'neutron'}->{'triggered'} = 0;
-                                                }
-                                        }
-                                }
-                        }
-                }
+    my @data;
+    my $host = `hostname`;
+    chomp($host);
+    if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
+        checkOvs();
+        nimLog(1, "Neutron/Quantum agent(s) detected. Checking status...");
+        if ( -e '/usr/bin/neutron' ) {
+            @data = `/usr/bin/neutron --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
         } else {
-                nimLog(1, "Neutron/Quantum NOT detected. Skipping.");
+            @data = `/usr/bin/quantum --os-username $config->{'setup'}->{'os-username'} --os-tenant-name $config->{'setup'}->{'os-tenant'} --os-auth-url $config->{'setup'}->{'os-auth-url'} --os-password $config->{'setup'}->{'os-password'} agent-list 2>/dev/null`;
         }
+        if ($? != 0 || !@data) {
+            blackAndWhite("NeutronConnection",1);
+        } else {
+            blackAndWhite("NeutronConnection",0);
+            nimLog(1, 'Returned '.scalar(@data).' lines from Neutron/Quantum');
+            my @service_list;
+            shift @data;
+            shift @data;
+            shift @data;
+            pop @data;
+            foreach my $line (@data) {
+                my $service = {};
+                my @values = split('\|',$line);
+                if (@values[3] =~ /$host/) {
+                    $service->{@values[2]} = @values[4];
+                    push @service_list,$service;
+                }
+            }
+            for my $i (@service_list) {
+                while ( my ($key, $value) = each %{$i} ) {
+                    if ( $key =~ m/DHCP/){ checkMetadata() };
+                    if ( $value eq 'XXX' || $value eq 'xxx' ) {
+                        if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
+                        $config->{'status'}->{$key}->{'samples'}++;
+                        if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                            if ($config->{'status'}->{'neutron'}->{'triggered'} == 0){
+                                nimLog(1, "Critical alert on neutron service $key");
+                                my $alert_string = "[CRITICAL] Neutron/Quantum Service $key is not checking in. Please investigate.";
+                                nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
+                                $config->{'status'}->{'neutron'}->{'triggered'} = 1;
+                            }
+                        }
+                    } else {
+                        $config->{'status'}->{$key}->{'samples'} = 0;
+                        if ($config->{'status'}->{'neutron'}->{'triggered'} == 1){
+                            nimLog(1, "Neutron/Quantum service $key has checked in.");
+                            my $alert_string = "Neutron Service ($key) Alert clear";
+                            nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"neutronservice"));
+                            $config->{'status'}->{'neutron'}->{'triggered'} = 0;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        nimLog(1, "Neutron/Quantum NOT detected. Skipping.");
+    }
 }
 
 sub checkCinder {
-        my $host = `hostname`;
-        my @data;
-        my $localApi;
-        chomp($host);
-        if ( -e '/etc/init.d/cinder-api' || -e '/etc/init.d/openstack-cinder-api' ){
-                nimLog(1, "Local APIs found. Checking");
-                $localApi = 1;
-                @data = `curl -f -s -i http://$host:8776/v1/$config->{'setup'}->{'keystone-tenant'}/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $config->{'setup'}->{'keystone-token'}"`;
-        } else {
-                nimLog(1, "Local APIs NOT found. Checking Cinder via VIP");
-                $localApi = 0;
-                my @vip = split('5000',$config->{'setup'}->{'os-auth-url'});
-                @data = `curl -f -s -i $vip[0]:8776/v1/$config->{'setup'}->{'keystone-tenant'}/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $config->{'setup'}->{'keystone-token'}"`;
+    my $host = `hostname`;
+    my @data;
+    my $localApi;
+    chomp($host);
+    if ( -e '/etc/init.d/cinder-api' || -e '/etc/init.d/openstack-cinder-api' ){
+        nimLog(1, "Local APIs found. Checking");
+        $localApi = 1;
+        @data = `curl -f -s -i http://$host:8776/v1/$config->{'setup'}->{'keystone-tenant'}/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $config->{'setup'}->{'keystone-token'}"`;
+    } else {
+        nimLog(1, "Local APIs NOT found. Checking Cinder via VIP");
+        $localApi = 0;
+        my @vip = split('5000',$config->{'setup'}->{'os-auth-url'});
+        @data = `curl -f -s -i $vip[0]:8776/v1/$config->{'setup'}->{'keystone-tenant'}/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $config->{'setup'}->{'keystone-token'}"`;
+    }
+    if ($? != 0 || !@data) {
+        if ( $localApi == 1 ){
+            if ($? ne "5632"){
+                nimLog(1, "Cinder API responded with a 404. Cinder is too old.");
+            } else {
+                blackAndWhite("CinderConnection",1);
+            }
         }
-        if ($? != 0 || !@data) {
-                if ( $localApi == 1 ){
-                        blackAndWhite("CinderConnection",1);
-                }
-        } else {
-                blackAndWhite("CinderConnection",0);
-                nimLog(1, 'Returned '.scalar(@data).' lines from Cinder-Api');
-                my $last = pop @data;
-                my @values = split('>',$last);
-                shift @values;
-                pop @values;
-                foreach (@values){
-                        my @line = split(' ',$_);
-                        chop($line[5]);
-                        if ($line[5] =~ $host){
-                                nimLog(1, "Checking Cinder Service ".$line[2]."...");
-                                if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;};
-                                if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;};
-                                if ($line[1] =~ "enabled" && $line[4] =~ "up"){
-                                        $config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;
-                                        if ( $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} == 1 ){
-                                                my $alert_string = "Cinder Service $line[2] has checked in. This alert is clear.";
-                                                nimLog(1, $alert_string);
-                                                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cinderservice"));
-                                                $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;
-                                        }
-                                } else {
-                                        $config->{'status'}->{'cinder'}->{$line[2]}->{'samples'}++;
-                                        if ($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                                                if ($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} == 0){
-                                                        my $alert_string = "Warning Cinder Service $line[2] has not checked in. Please investigate.";
-                                                        nimLog(1, $alert_string);
-                                                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cinderservice"));
-                                                        $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 1;
-                                                }
-                                        }
-                                }
-                        }
-                }
-        }
-        my @vgcheck = `$config->{'setup'}->{'lvm-cmd-line'} $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-        if ($? == 0 ) {
-                nimLog(1, "Cinder volume detected. Checking status...");
-                my $vgSize = `vgs -o size --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-                my $vgFree = `vgs -o free --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
-                my $alarm = ($vgSize/100)*$config->{'setup'}->{'volume-alarm'};
-                if ( $vgFree < $alarm ) {
-                        if (!defined($config->{'status'}->{'volumeGroup'}->{'samples'})){$config->{'status'}->{'volumeGroup'}->{'samples'} = 0;};
-                        $config->{'status'}->{'volumeGroup'}->{'samples'}++;
-                        if ($config->{'status'}->{'volumeGroup'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
-                                if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 0){
-                                        my $alert_string = "Warning Volume Group $config->{'setup'}->{'volume-name'} size is under $config->{'setup'}->{'volume-alarm'}\% of $vgSize";
-                                        nimLog(1, $alert_string);
-                                        nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
-                                        $config->{'status'}->{'volumeGroup'}->{'triggered'} = 1;
-                                }
-                        }
+    } else {
+        blackAndWhite("CinderConnection",0);
+        nimLog(1, 'Returned '.scalar(@data).' lines from Cinder-Api');
+        my $last = pop @data;
+        my @values = split('>',$last);
+        shift @values;
+        pop @values;
+        foreach (@values){
+            my @line = split(' ',$_);
+            chop($line[5]);
+            if ($line[5] =~ $host){
+                nimLog(1, "Checking Cinder Service ".$line[2]."...");
+                if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;};
+                if (!defined($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'})){$config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;};
+                if ($line[1] =~ "enabled" && $line[4] =~ "up"){
+                    $config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} = 0;
+                    if ( $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} == 1 ){
+                        my $alert_string = "Cinder Service $line[2] has checked in. This alert is clear.";
+                        nimLog(1, $alert_string);
+                        nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cinderservice"));
+                        $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 0;
+                    }
                 } else {
-                        $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
-                        if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 1){
-                                my $alert_string = "Volume Group alert has cleared";
-                                nimLog(1, $alert_string);
-                                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
-                                $config->{'status'}->{'volumeGroup'}->{'triggered'} = 0;
+                    $config->{'status'}->{'cinder'}->{$line[2]}->{'samples'}++;
+                    if ($config->{'status'}->{'cinder'}->{$line[2]}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                        if ($config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} == 0){
+                            my $alert_string = "Warning Cinder Service $line[2] has not checked in. Please investigate.";
+                            nimLog(1, $alert_string);
+                            nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cinderservice"));
+                            $config->{'status'}->{'cinder'}->{$line[2]}->{'triggered'} = 1;
                         }
-                }     
-        } else {
-                nimLog(1, "Cinder volume NOT detected. Skipping.");
+                    }
+                }
+            }
         }
+    }
+    my @vgcheck = `$config->{'setup'}->{'lvm-cmd-line'} $config->{'setup'}->{'volume-name'} 2>/dev/null`;
+    if ($? == 0 ) {
+        nimLog(1, "Cinder volume detected. Checking status...");
+        my $vgSize = `vgs -o size --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
+        my $vgFree = `vgs -o free --noheadings --units t $config->{'setup'}->{'volume-name'} 2>/dev/null`;
+        my $alarm = ($vgSize/100)*$config->{'setup'}->{'volume-alarm'};
+        if ( $vgFree < $alarm ) {
+            if (!defined($config->{'status'}->{'volumeGroup'}->{'samples'})){$config->{'status'}->{'volumeGroup'}->{'samples'} = 0;};
+            $config->{'status'}->{'volumeGroup'}->{'samples'}++;
+            if ($config->{'status'}->{'volumeGroup'}->{'samples'} >= $config->{'setup'}->{'samples'}) {
+                if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 0){
+                    my $alert_string = "Warning Volume Group $config->{'setup'}->{'volume-name'} size is under $config->{'setup'}->{'volume-alarm'}\% of $vgSize";
+                    nimLog(1, $alert_string);
+                    nimAlarm( 5,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+                    $config->{'status'}->{'volumeGroup'}->{'triggered'} = 1;
+                }
+            }
+        } else {
+            $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
+            if ($config->{'status'}->{'volumeGroup'}->{'triggered'} == 1){
+                my $alert_string = "Volume Group alert has cleared";
+                nimLog(1, $alert_string);
+                nimAlarm( NIML_CLEAR,$alert_string,$sub_sys,nimSuppToStr(0,0,0,"cindervolume"));
+                $config->{'status'}->{'volumeGroup'}->{'triggered'} = 0;
+            }
+        }     
+    } else {
+        nimLog(1, "Cinder volume NOT detected. Skipping.");
+    }
 }
 
 sub checkKvm {
@@ -552,6 +641,7 @@ sub checkKvm {
 }
 
 sub timeout {
+    if ($config->{'setup'}->{'testing'} eq "0"){
         my $timestamp = time();
         if ($timestamp < $config->{'status'}->{'next_run'}) { return; }
         $config->{'status'}->{'next_run'} += $config->{'setup'}->{'interval'};
@@ -561,17 +651,23 @@ sub timeout {
                 nimLog(1, "Suppression interval '$_s_active' active");
                 return;
         }
-        checkKeystone();
-        checkMemcached();
-        checkNeutronServer();
-        checkRabbit();
-        checkMysql();
-        checkNova();
-        checkNeutron();
-        checkCinder();
-        checkGlance();
-        checkKvm();
-        checkHorizon();
+    }
+    checkKeystone();
+    checkMemcached();
+    if (defined $config->{'setup'}->{'nova'}->{'network-type'}){
+        if ($config->{'setup'}->{'nova'}->{'network-type'} = 'neutron'){
+            checkNeutronServer();
+            checkNeutron();
+        }
+    }
+    checkRabbit();
+    checkMysql();
+    checkNova();
+    checkCinder();
+    checkGlance();
+    checkKvm();
+    checkHorizon();
+    checkSwift();
 }
 
 sub checkMysql {
@@ -764,23 +860,42 @@ sub initialize_mysql_exec {
 }
 
 sub readConfig {
-    nimLog(1, "'$prgname' : Reading Config File");
-    $config       = Nimbus::CFG->new("$prgname.cfg");    
+    my $novaCfg;
+    my $keystoneCfg;
+    nimLog(1, "'$prgname' : Reading Config Files");
+    $config = Nimbus::CFG->new("$prgname.cfg");
     my $loglevel  = $options{'d'} || $config->{'setup'}->{'loglevel'} || 0;
     my $logfile   = $options{'l'} || $config->{'setup'}->{'logfile'} || $prgname.'.log';
     nimLogSet($logfile, $prgname, $loglevel, 0);
+    if (-e '/etc/nova/nova.conf' ) { $novaCfg = IniFiles->new ( -file => "/etc/nova/nova.conf" ) }
+    if (-e '/etc/keystone/keystone.conf') { $keystoneCfg = IniFiles->new ( -file => "/etc/keystone/keystone.conf" ) }
     if ( -e '/root/openrc' ) {
-        open (openrc,'/root/openrc');
+        open ('openrc','/root/openrc');
         while (<openrc>) {
-                chomp;
-                if (substr($_,0,1) !~ "#"){
-                        my ($key, $val) = split /=/;
-                        if ($key =~ "OS_USERNAME") { if (length($config->{'setup'}->{'os-username'}) eq 0) { $config->{'setup'}->{'os-username'} = $val; }}
-                        if ($key =~ "OS_PASSWORD") { if (length($config->{'setup'}->{'os-password'}) eq 0) { $config->{'setup'}->{'os-password'} = $val; }}
-                        if ($key =~ "OS_TENANT_NAME") { if (length($config->{'setup'}->{'os-tenant'}) eq 0) { $config->{'setup'}->{'os-tenant'} = $val; }}
-                        if ($key =~ "OS_AUTH_URL") { if (length($config->{'setup'}->{'os-auth-url'}) eq 0) { $config->{'setup'}->{'os-auth-url'} = $val; }}
-                }
+            chomp;
+            if (substr($_,0,1) !~ "#"){
+                my ($key, $val) = split /=/;
+                if ($key =~ "OS_USERNAME") { if (length($config->{'setup'}->{'os-username'}) eq 0) { $config->{'setup'}->{'os-username'} = $val; }}
+                if ($key =~ "OS_PASSWORD") { if (length($config->{'setup'}->{'os-password'}) eq 0) { $config->{'setup'}->{'os-password'} = $val; }}
+                if ($key =~ "OS_TENANT_NAME") { if (length($config->{'setup'}->{'os-tenant'}) eq 0) { $config->{'setup'}->{'os-tenant'} = $val; }}
+                if ($key =~ "OS_AUTH_URL") { if (length($config->{'setup'}->{'os-auth-url'}) eq 0) { $config->{'setup'}->{'os-auth-url'} = $val; }}
+            }
         }
+    }
+    if (defined $novaCfg){
+        if (!defined($config->{'setup'}->{'nova'}->{'network-type'})) { 
+            if (!defined $novaCfg->val('DEFAULT', 'network_manager')){
+                $config->{'setup'}->{'nova'}->{'network-type'} = 'neutron'; 
+            } else {
+                $config->{'setup'}->{'nova'}->{'network-type'} = 'nova-network'; 
+            }
+        }
+    }
+    if (defined $keystoneCfg){
+        if (!defined($config->{'setup'}->{'keystone'}->{'admin-token'})) { $config->{'setup'}->{'keystone'}->{'admin-token'} = $keystoneCfg->val('DEFAULT', 'admin_token') } 
+        if (!defined($config->{'setup'}->{'keystone'}->{'bind-host'})) { $config->{'setup'}->{'keystone'}->{'bind-host'} = $keystoneCfg->val('DEFAULT', 'bind_host') } 
+        if (!defined($config->{'setup'}->{'keystone'}->{'public-port'})) { $config->{'setup'}->{'keystone'}->{'public-port'} = $keystoneCfg->val('DEFAULT', 'public_port') } 
+        if (!defined($config->{'setup'}->{'keystone'}->{'admin-port'})) { $config->{'setup'}->{'keystone'}->{'admin-port'} = $keystoneCfg->val('DEFAULT', 'admin_port') } 
     }
     if (!defined($config->{'setup'}->{'interval'})) { $config->{'setup'}->{'interval'} = 300; }
     if (!defined($config->{'setup'}->{'samples'})) { $config->{'setup'}->{'samples'} = 3; }
@@ -791,38 +906,27 @@ sub readConfig {
     if (!defined($config->{'setup'}->{'mysql_defaults_file'}) || ($config->{'setup'}->{'mysql_defaults_file'} eq '')) {
         if ( -e '/root/.my.cnf') { $config->{'setup'}->{'mysql_defaults_file'} = '/root/.my.cnf'; }
     } else {
-        if (!( -e $config->{'setup'}->{'mysql_defaults_file'})) { 
-            $config->{'setup'}->{'mysql_defaults_file'} = undef; 
+        if (!( -e $config->{'setup'}->{'mysql_defaults_file'})) {
+            $config->{'setup'}->{'mysql_defaults_file'} = undef;
         } else {
             nimLog(1, "Defaults file '$config->{setup}->{mysql_defaults_file} not found; ignoring");
         }
     }
 }
+
 sub init_setup {
     readConfig();
     $config->{'status'}->{'next_run'} = time(); 
     $config->{'status'}->{'rabbit'}->{'samples'} = 0;
     $config->{'status'}->{'rabbit'}->{'triggered'} = 0;
-    $config->{'status'}->{'RabbitConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'RabbitConnection'}->{'triggered'} = 0;
     $config->{'status'}->{'volumeGroup'}->{'samples'} = 0;
     $config->{'status'}->{'volumeGroup'}->{'triggered'} = 0;
-    $config->{'status'}->{'NovaConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'NovaConnection'}->{'triggered'} = 0;
     $config->{'status'}->{'nova'}->{'samples'} = 0;
     $config->{'status'}->{'nova'}->{'triggered'} = 0;
     $config->{'status'}->{'neutron'}->{'samples'} = 0;
     $config->{'status'}->{'neutron'}->{'triggered'} = 0;
-    $config->{'status'}->{'NeutronConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'NeutronConnection'}->{'triggered'} = 0;
-    $config->{'status'}->{'NeutronServerConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'NeutronServerConnection'}->{'triggered'} = 0;
-    $config->{'status'}->{'KeystoneConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'KeystoneConnection'}->{'triggered'} = 0;
-    $config->{'status'}->{'GlanceConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'GlanceConnection'}->{'triggered'} = 0;
-    $config->{'status'}->{'KvmConnection'}->{'samples'} = 0;
-    $config->{'status'}->{'KvmConnection'}->{'triggered'} = 0;
+    $config->{'status'}->{'NeutronMetadata'}->{'samples'} = 0;
+    $config->{'status'}->{'NeutronMetadata'}->{'triggered'} = 0;
     $config->{'status'}->{'Slave_IO_Running'}->{'last'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'samples'} = 0; 
     $config->{'status'}->{'Slave_IO_Running'}->{'triggered'} = 0;
@@ -841,16 +945,20 @@ sub ctrlc {
 getopts( "d:l:i:", \%options );
 $SIG{INT} = \&ctrlc;
 init_setup();
-my $sess = Nimbus::Session->new("$prgname");
-$sess->setInfo($version, "Rackspace The Open Cloud Company");
-if ($sess->server(NIMPORT_ANY, \&timeout, \&init_setup) == NIME_OK) {
-    nimLog( 0, "server session is created" );
-} else {
-    nimLog( 0, "unable to create server session" );
-    exit(1);
-}
+if ($config->{'setup'}->{'testing'} eq "0"){
+    my $sess = Nimbus::Session->new("$prgname");
+    $sess->setInfo($version, "Rackspace The Open Cloud Company");
+    if ($sess->server(NIMPORT_ANY, \&timeout, \&init_setup) == NIME_OK) {
+        nimLog( 0, "server session is created" );
+    } else {
+        nimLog( 0, "unable to create server session" );
+        exit(1);
+    }
 
-$sess->dispatch();
+    $sess->dispatch();
+} else {
+    timeout();
+}
 nimLog(0, "Received STOP, terminating program");
 nimLog(0, "Exiting program" );
 exit(0);
