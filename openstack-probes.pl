@@ -28,7 +28,7 @@ use IniFiles;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.23';
+my $version = '0.24';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -206,7 +206,7 @@ sub checkMetadata {
         }
     }
     nimLog(1, 'Returned '.scalar(@logicalAnd).' lines from Neutron/Quantum Intersection of DHCP and Net List');
-
+    @dnsmasq = `/usr/bin/killall -s 1 dnsmasq`;
     foreach my $value (@logicalAnd) {
         if (!defined($config->{'status'}->{$value}->{'samples'})){$config->{'status'}->{$value}->{'samples'} = 0;};
         if (!defined($config->{'status'}->{$value}->{'triggered'})){$config->{'status'}->{$value}->{'triggered'} = 0;};

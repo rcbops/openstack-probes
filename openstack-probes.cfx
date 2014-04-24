@@ -1,5 +1,5 @@
 <setup>
-   loglevel = 0
+   loglevel = 2
    logfile = openstack-probes.log
    testing = 0
    interval = 300
