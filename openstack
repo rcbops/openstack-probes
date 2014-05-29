@@ -1,0 +1,414 @@
+#!/bin/env perl
+#openstack cloud-monitoring plugin to monitor openstack
+#Copyright (C) 2014  Jake Briggs jake.briggs@rackspace.com
+#
+#This program is free software: you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation, either version 3 of the License, or
+#(at your option) any later version.
+#
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#GNU General Public License for more details.
+#
+
+my $os_username;
+my $os_password;
+my $os_tenant;
+my $os_auth_url;
+my $network_type;
+my $admin_token;
+my $bind_host;
+my $public_port;
+my $admin_port;
+my $keystone_token;
+my $keystone_tenant;
+my $keystone_user;
+my $volume_name="cinder-volumes";
+
+
+use strict;
+use IO::Socket::INET;
+use Getopt::Std;
+use Data::Dumper;
+use feature "switch";
+use Socket;
+use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
+use IniFiles;
+
+my $version = '0.25';
+
+sub blackAndWhite {
+    my ($message, $goodOrBad) = @_;
+    my $logMessage;
+    given ($message) {
+        when (/^RabbitConnection/) { $logMessage = "RabbitMQ not reachable" }
+        when (/^NovaConnection/) { $logMessage = "Nova-manage did not respond" }
+        when (/^KeystoneConnection/) { $logMessage = "Keystone did not respond" }
+        when (/^GlanceConnection/) { $logMessage = "Glance did not respond" }
+        when (/^NeutronServerConnection/) { $logMessage = "Neutron/Quantum server did not respond" }
+        when (/^NeutronConnection/) { $logMessage = "Neutron/Quantum did not respond" }
+        when (/^KvmConnection/) { $logMessage = "LibVirt did not respond" }
+        when (/^MemCachedConnection/) { $logMessage = "MemCached did not respond" }
+        when (/^CinderConnection/) { $logMessage = "Cinder-Api Service did not respond" }
+        when (/^NoVncProxyConnection/) { $logMessage = "Nova-NoVncProxy Service did not respond" }
+        when (/^HorizonConnection/) { $logMessage = "Apache Service did not respond" }
+        when (/^OvsDBConnection/) { $logMessage = "ovsdb-server Service did not respond" }
+        when (/^OvsSwitchdConnection/) { $logMessage = "ovs-vswitchd Service did not respond" }
+        when (/^SwiftProxyConnection/) { $logMessage = "Swift Proxy-Server did not respond" }
+        when (/^SwiftAccountConnection/) { $logMessage = "Swift Account-Server did not respond" }
+        when (/^SwiftContainerConnection/) { $logMessage = "Swift Container-Server did not respond" }
+        when (/^SwiftObjectConnection/) { $logMessage = "Swift Object-Server did not respond" }
+        Default: { $logMessage = "Something is really wrong!!!" }
+    }
+    if ( $goodOrBad == 1 ) { print "metric $message string $logMessage\n"; }
+    return
+}
+
+sub checkOvs {
+    if (-e '/usr/bin/ovsdb-client'){
+        my @data = `ovsdb-client list-dbs`;
+        if ( $? != 0 || !@data ){ blackAndWhite("OvsDBConnection",1); } else { blackAndWhite("OvsDBConnection",0); }
+        @data = `ovs-vsctl list-br`;
+        if ( $? != 0 || !@data ){ blackAndWhite("OvsSwitchdConnection",1); } else { blackAndWhite("OvsSwitchdConnection",0); }
+    }
+}
+
+sub checkHorizon {
+    if (-e '/etc/openstack-dashboard'){
+        my $host = `hostname`;
+        chomp($host);
+        my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+        my @data = `curl -f -s http://$address:6080/vnc_auto.html`;
+        if ( $? != 0 || !@data ){ blackAndWhite("NoVncProxyConnection",1); } else { blackAndWhite("NoVncProxyConnection",0); }
+        @data = `curl -f -s -k https://$address`;
+        if ( $? != 0 || !@data ){ blackAndWhite("HorizonConnection",1); } else { blackAndWhite("HorizonConnection",0); }
+        }
+}
+
+sub checkMemcached {
+    if ( -e '/etc/init.d/memcached' || -e '/lib/systemd/system/memcached.service'  ) {
+        my $host = `hostname`;
+        my $host1= "127.0.0.1";
+        chomp($host);
+        $host .= ":11211";
+        $host1 .= ":11211";
+        my $sock = IO::Socket::INET->new(PeerAddr => $host, Proto => 'tcp');
+        my $sock1 = IO::Socket::INET->new(PeerAddr => $host1, Proto => 'tcp');
+        if ( $sock || $sock1 ) { 
+            blackAndWhite("MemCachedConnection",0); 
+            if ( $sock ) { $sock->close(); } else { $sock1->close(); }
+        } else { blackAndWhite("MemCachedConnection",1); }
+    }
+}
+
+sub checkMetadata {
+    my @data;
+    if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp`; }
+    if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp`; }
+    chomp(@data);
+    my @lsuuids;
+    foreach my $str (@data) { if ( $str =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) { push(@lsuuids, lc($1)); } }
+    my @data;
+    if ( -e '/usr/bin/neutron' ) {
+        @data = `/usr/bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
+    } else {
+        @data = `/usr/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
+    }
+    chomp(@data);
+    my @netUuids;
+    for my $str (@data) {
+        my @tokens = split(' ', $str);
+        if (scalar(@tokens) > 1) { if (@tokens[1] =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) { push(@netUuids, lc($1)); } }
+    }
+    my @logicalAnd;
+    foreach my $dhcpuuid (@lsuuids) {
+        foreach my $netuuid (@netUuids) {
+            if ($dhcpuuid eq $netuuid) {
+                push(@logicalAnd, $dhcpuuid);
+                last;
+            }
+        }
+    }
+    my @dnsmasq = `/usr/bin/killall -s 1 dnsmasq 2>/dev/null`;
+    my $thatsBad = 0;
+    foreach my $value (@logicalAnd) {
+        $value =~ s/^\s*(.*?)\s*$/$1/;
+        my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
+        if ( $? ne "5632" ) { 
+            print "metric $value string (Neutron/Quantum)-metadata\n";
+            $thatsBad = 1;
+        } 
+    }
+    if ($thatsBad == 1){
+        my @try = `pkill dnsmasq`;
+        if ( $? != 0 ){
+            return;
+        }
+        if ( -e '/etc/init.d/quantum-dhcp-agent' ){ @try = `/etc/init.d/quantum-dhcp-agent restart`; }
+        if ( -e '/etc/init.d/neutron-dhcp-agent' ){ @try = `/etc/init.d/neutron-dhcp-agent restart`; }
+        if ( -e '/lib/systemd/system/neutron-dhcp-agent.service' ){ @try = `systemctl restart neutron-dhcp-agent`; }
+        if ( $? != 0 ){
+            return
+        }
+    }
+}
+
+sub checkRabbit {
+    my @data;
+    if ( -e '/etc/init.d/rabbitmq-server' ) {
+        @data = `/usr/sbin/rabbitmqctl list_queues 2>/dev/null`;
+        if ($? != 0 || !@data) { blackAndWhite("RabbitConnection",1); return; } else { blackAndWhite("RabbitConnection",0); }
+        my $queues_list = {};
+        foreach my $line (@data) {
+            my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
+            next if (!defined($key) || !defined($value));
+            next if ($key == "notifications.info" || $key =~ /glance/);
+            $queues_list->{$key} = $value;
+        }
+        while ( my ($key, $value) = each(%$queues_list) ) {
+             print "metric $key int32 $value\n"; 
+        }
+    } 
+}
+
+sub checkNova {
+    my @data;
+    if ( -e '/usr/bin/nova-manage' ) {
+        @data = `/usr/bin/nova-manage service list 2>/dev/null`;
+        my $host = `hostname`;
+        chomp($host);
+        if ($? != 0 || !@data) { blackAndWhite("NovaConnection",1); return; } else { blackAndWhite("NovaConnection",0); }
+        my $service_list = {};
+        shift @data;
+        foreach my $line (@data) {
+            my @values = split(' ',$line);
+            if ((@values[1] eq $host) and (@values[3] eq 'enabled')){
+                $service_list->{$values[0]} = $values[4];
+            }
+        }
+        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { print "metric $key string Nova Service Down\n"; } }
+    }
+}
+
+sub checkKeystone {
+    my @data;
+    my $host = `/bin/hostname`;
+    chomp($host);
+    if (-e '/usr/bin/keystone-all' ){
+        @data = `/usr/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>/dev/null`;
+        if ($? != 0 || !@data) { blackAndWhite("KeystoneConnection",1); 
+        } else { blackAndWhite("KeystoneConnection",0);
+            my @token = split(' ',@data[4]);
+            $keystone_token = @token[3];
+            my @token = split(' ',@data[5]);
+            $keystone_tenant = @token[3];
+            my @token = split(' ',@data[6]);
+            $keystone_user = @token[3];
+        } 
+    }
+}
+
+sub checkSwiftProxy {
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:8080/healthcheck`;
+    if ( $? != 0 || !@data ){ blackAndWhite("SwiftProxyConnection",1); } else { blackAndWhite("SwiftProxyConnection",0); }
+}
+
+sub checkSwiftAccount {
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:6002/healthcheck`;
+    if ( $? != 0 || !@data ){ blackAndWhite("SwiftAccountConnection",1); } else { blackAndWhite("SwiftAccountConnection",0); }
+}
+
+sub checkSwiftContainer {
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:6001/healthcheck`;
+    if ( $? != 0 || !@data ){ blackAndWhite("SwiftContainerConnection",1); } else { blackAndWhite("SwiftContainerConnection",0); }
+}
+
+sub checkSwiftObject {
+    my $host = `hostname`;
+    chomp($host);
+    my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
+    my @data = `curl -f -s http://$address:6000/healthcheck`;
+    if ( $? != 0 || !@data ){ blackAndWhite("SwiftObjectConnection",1); } else { blackAndWhite("SwiftObjectConnection",0); }
+}
+
+sub checkSwift {
+    if ( -e '/etc/rc3.d/S98openstack-swift-proxy' || -e '/etc/init/swift-proxy.conf' ) { checkSwiftProxy() }
+    if ( -e '/etc/rc3.d/S98openstack-swift-account' || -e '/etc/init/swift-account.conf' ) { checkSwiftAccount() }
+    if ( -e '/etc/rc3.d/S98openstack-swift-container' || -e '/etc/init/swift-container.conf' ) { checkSwiftContainer() }
+    if ( -e '/etc/rc3.d/S98openstack-swift-object' || -e '/etc/init/swift-object.conf' ) { checkSwiftObject() }
+}
+
+sub checkGlance {
+    my @data;
+    if (-e '/usr/bin/glance-manage' ){
+        @data = `/usr/bin/glance --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password index 2>/dev/null`;
+        if ($? != 0 || !@data) { blackAndWhite("GlanceConnection",1); return; } else { blackAndWhite("GlanceConnection",0); } 
+    }
+}
+
+sub checkNeutronServer {
+    my @data;
+    my $host = `hostname`;
+    chomp($host);
+    if ( -e '/etc/init.d/neutron-server' || -e '/etc/init.d/quantum-server' ) {
+        @data = `curl -f -H "X-Auth-Token:$keystone_token" http://$host:9696/v2.0/networks`;
+        if ($? != 0 || !@data) { blackAndWhite("NeutronServerConnection",1); } else { blackAndWhite("NeutronServerConnection",0); }
+    }
+}
+
+sub checkNeutron {
+    my @data;
+    my $host = `hostname`;
+    chomp($host);
+    if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
+        checkOvs();
+        if ( -e '/usr/bin/neutron' ) {
+            @data = `/usr/bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>/dev/null`;
+        } else {
+            @data = `/usr/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>/dev/null`;
+        }
+        if ($? != 0 || !@data) {
+            blackAndWhite("NeutronConnection",1);
+        } else {
+            blackAndWhite("NeutronConnection",0);
+            my @service_list;
+            shift @data;
+            shift @data;
+            shift @data;
+            pop @data;
+            foreach my $line (@data) {
+                my $service = {};
+                my @values = split('\|',$line);
+                if (@values[3] =~ /$host/) {
+                    $service->{@values[2]} = @values[4];
+                    push @service_list,$service;
+                }
+            }
+            for my $i (@service_list) {
+                while ( my ($key, $value) = each %{$i} ) {
+                    if ( $key =~ m/DHCP/){ checkMetadata() };
+                    if ( $value eq 'XXX' || $value eq 'xxx' ) { print "metric $key string Neutron Agent Down\n"; }
+                }
+            }
+        }
+    }
+}
+
+sub checkCinder {
+    my $host = `hostname`;
+    my @data;
+    my $localApi;
+    chomp($host);
+    if ( -e '/etc/init.d/cinder-api' || -e '/etc/init.d/openstack-cinder-api' || -e '/lib/systemd/system/openstack-cinder-api.service' ){
+        $localApi = 1;
+        @data = `curl -f -s -i http://$host:8776/v1/$keystone_tenant/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $keystone_token"`;
+    } else {
+        if ( -e '/etc/init.d/cinder-volume' || -e '/etc/init.d/openstack-cinder-volume' || -e '/lib/systemd/system/openstack-cinder-volume.service' ){
+            $localApi = 0;
+            my @vip = split('5000',$os_auth_url);
+            @data = `curl -f -s -i $vip[0]:8776/v1/$keystone_tenant/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $keystone_token"`;
+        } else { return }
+    }
+    if ($? != 0 || !@data) {
+        if ( $localApi == 1 ){
+            if ($? ne "5632"){ blackAndWhite("CinderConnection",1); }
+        }
+    } else {
+        blackAndWhite("CinderConnection",0);
+        my $last = pop @data;
+        my @values = split('>',$last);
+        shift @values;
+        pop @values;
+        foreach (@values){
+            my @line = split(' ',$_);
+            chop($line[5]);
+            if ($line[5] =~ $host){
+                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ print "metric $line[2] string Cinder Service Down\n";
+                }
+            }
+        }
+    }
+    my @vgcheck = `/sbin/vgdisplay $volume_name 2>/dev/null`;
+    if ($? == 0 ) {
+        my $vgSize = substr(`vgs -o size --noheadings --units b $volume_name 2>/dev/null`,0,-2);
+        my $vgFree = substr(`vgs -o free --noheadings --units b $volume_name 2>/dev/null`,0,-2);
+        my $vgUsed = $vgSize - $vgFree;
+        print "metric CinderVGSize double ",$vgSize,"\n";
+        print "metric CinderVGUsed double ",$vgUsed,"\n";
+    }
+}
+
+sub checkKvm {
+    my @data;
+    if (-e '/usr/bin/virsh' ){
+        @data = `/usr/bin/virsh sysinfo 2>/dev/null`;
+        if ($? != 0 || !@data) { blackAndWhite("KvmConnection",1); return; } else { blackAndWhite("KvmConnection",0); } 
+    }
+}
+
+sub timeout {
+    checkKeystone();
+    checkMemcached();
+    if (defined $network_type){
+        if ($network_type eq 'neutron'){
+            checkNeutronServer();
+            checkNeutron();
+        }
+    }
+    checkRabbit();
+    checkNova();
+    checkCinder();
+    checkGlance();
+    checkKvm();
+    checkHorizon();
+    checkSwift();
+}
+
+sub readConfig {
+    my $novaCfg;
+    my $keystoneCfg;
+    if (-e '/etc/nova/nova.conf' ) { $novaCfg = IniFiles->new ( -file => "/etc/nova/nova.conf" ) }
+    if (-e '/etc/keystone/keystone.conf') { $keystoneCfg = IniFiles->new ( -file => "/etc/keystone/keystone.conf" ) }
+    if ( -e '/root/openrc' ) {
+        open ('openrc','/root/openrc');
+        while (<openrc>) {
+            chomp;
+            if (substr($_,0,1) !~ "#"){
+                my ($key, $val) = split /=/;
+                if ($key =~ "OS_USERNAME") { $os_username = $val; }
+                if ($key =~ "OS_PASSWORD") { $os_password = $val; }
+                if ($key =~ "OS_TENANT_NAME") { $os_tenant = $val; }
+                if ($key =~ "OS_AUTH_URL") { $os_auth_url = $val; }
+            }
+        }
+    }
+    if (defined $novaCfg){
+        if (!defined $novaCfg->val('DEFAULT', 'network_manager')){
+            $network_type = 'neutron'; 
+        } else {
+            $network_type = 'nova-network'; 
+        }
+    }
+    if (defined $keystoneCfg){
+        $admin_token = $keystoneCfg->val('DEFAULT', 'admin_token');
+        $bind_host = $keystoneCfg->val('DEFAULT', 'bind_host');
+        $public_port = $keystoneCfg->val('DEFAULT', 'public_port');
+        $admin_port = $keystoneCfg->val('DEFAULT', 'admin_port');
+    }
+}
+
+readConfig();
+timeout();
+print "status 0\n";
+exit(0);
