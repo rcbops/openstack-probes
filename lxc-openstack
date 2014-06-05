@@ -1,4 +1,4 @@
-#!/bin/env perl
+#!/usr/bin/env perl
 #openstack cloud-monitoring plugin to monitor openstack
 #Copyright (C) 2014  Jake Briggs jake.briggs@rackspace.com
 #
@@ -26,6 +26,8 @@ my $keystone_token;
 my $keystone_tenant;
 my $keystone_user;
 my $volume_name="cinder-volumes";
+my $host = `hostname`;
+chomp($host);
 
 
 use strict;
@@ -34,7 +36,8 @@ use Getopt::Std;
 use Data::Dumper;
 use feature "switch";
 use Socket;
-use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
+use lib '/tmp/lib';
+use lib './lib';
 use IniFiles;
 
 my $version = '0.25';
@@ -62,7 +65,7 @@ sub blackAndWhite {
         when (/^SwiftObjectConnection/) { $logMessage = "Swift Object-Server did not respond" }
         Default: { $logMessage = "Something is really wrong!!!" }
     }
-    if ( $goodOrBad == 1 ) { print "metric $message string $logMessage\n"; }
+    if ( $goodOrBad == 1 ) { print "metric $message string $host:$logMessage\n"; }
     return
 }
 
@@ -77,8 +80,6 @@ sub checkOvs {
 
 sub checkHorizon {
     if (-e '/etc/openstack-dashboard'){
-        my $host = `hostname`;
-        chomp($host);
         my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
         my @data = `curl -f -s http://$address:6080/vnc_auto.html`;
         if ( $? != 0 || !@data ){ blackAndWhite("NoVncProxyConnection",1); } else { blackAndWhite("NoVncProxyConnection",0); }
@@ -89,12 +90,8 @@ sub checkHorizon {
 
 sub checkMemcached {
     if ( -e '/etc/init.d/memcached' || -e '/lib/systemd/system/memcached.service'  ) {
-        my $host = `hostname`;
-        my $host1= "127.0.0.1";
-        chomp($host);
-        $host .= ":11211";
-        $host1 .= ":11211";
-        my $sock = IO::Socket::INET->new(PeerAddr => $host, Proto => 'tcp');
+        my $host1= "127.0.0.1:11211";
+        my $sock = IO::Socket::INET->new(PeerAddr => $host.":11211", Proto => 'tcp');
         my $sock1 = IO::Socket::INET->new(PeerAddr => $host1, Proto => 'tcp');
         if ( $sock || $sock1 ) { 
             blackAndWhite("MemCachedConnection",0); 
@@ -137,7 +134,7 @@ sub checkMetadata {
         $value =~ s/^\s*(.*?)\s*$/$1/;
         my @response = `ip netns exec qdhcp-$value curl -f -s 169.254.169.254`;
         if ( $? ne "5632" ) { 
-            print "metric $value string (Neutron/Quantum)-metadata\n";
+            print "metric $value string $host:(Neutron/Quantum)-metadata\n";
             $thatsBad = 1;
         } 
     }
@@ -168,7 +165,7 @@ sub checkRabbit {
             $queues_list->{$key} = $value;
         }
         while ( my ($key, $value) = each(%$queues_list) ) {
-             print "metric $key int32 $value\n"; 
+             print "metric $key int32 $host:$value\n"; 
         }
     } 
 }
@@ -177,8 +174,6 @@ sub checkNova {
     my @data;
     if ( -e '/usr/bin/nova-manage' ) {
         @data = `/usr/bin/nova-manage service list 2>/dev/null`;
-        my $host = `hostname`;
-        chomp($host);
         if ($? != 0 || !@data) { blackAndWhite("NovaConnection",1); return; } else { blackAndWhite("NovaConnection",0); }
         my $service_list = {};
         shift @data;
@@ -188,16 +183,14 @@ sub checkNova {
                 $service_list->{$values[0]} = $values[4];
             }
         }
-        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { print "metric $key string Nova Service Down\n"; } }
+        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { print "metric $key string $host:Nova Service Down\n"; } }
     }
 }
 
 sub checkKeystone {
     my @data;
-    my $host = `/bin/hostname`;
-    chomp($host);
-    if (-e '/usr/bin/keystone-all' ){
-        @data = `/usr/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>/dev/null`;
+    if (-e '/usr/local/bin/keystone-all' ){
+        @data = `/usr/local/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>/dev/null`;
         if ($? != 0 || !@data) { blackAndWhite("KeystoneConnection",1); 
         } else { blackAndWhite("KeystoneConnection",0);
             my @token = split(' ',@data[4]);
@@ -211,32 +204,24 @@ sub checkKeystone {
 }
 
 sub checkSwiftProxy {
-    my $host = `hostname`;
-    chomp($host);
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `curl -f -s http://$address:8080/healthcheck`;
     if ( $? != 0 || !@data ){ blackAndWhite("SwiftProxyConnection",1); } else { blackAndWhite("SwiftProxyConnection",0); }
 }
 
 sub checkSwiftAccount {
-    my $host = `hostname`;
-    chomp($host);
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `curl -f -s http://$address:6002/healthcheck`;
     if ( $? != 0 || !@data ){ blackAndWhite("SwiftAccountConnection",1); } else { blackAndWhite("SwiftAccountConnection",0); }
 }
 
 sub checkSwiftContainer {
-    my $host = `hostname`;
-    chomp($host);
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `curl -f -s http://$address:6001/healthcheck`;
     if ( $? != 0 || !@data ){ blackAndWhite("SwiftContainerConnection",1); } else { blackAndWhite("SwiftContainerConnection",0); }
 }
 
 sub checkSwiftObject {
-    my $host = `hostname`;
-    chomp($host);
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `curl -f -s http://$address:6000/healthcheck`;
     if ( $? != 0 || !@data ){ blackAndWhite("SwiftObjectConnection",1); } else { blackAndWhite("SwiftObjectConnection",0); }
@@ -259,8 +244,6 @@ sub checkGlance {
 
 sub checkNeutronServer {
     my @data;
-    my $host = `hostname`;
-    chomp($host);
     if ( -e '/etc/init.d/neutron-server' || -e '/etc/init.d/quantum-server' ) {
         @data = `curl -f -H "X-Auth-Token:$keystone_token" http://$host:9696/v2.0/networks`;
         if ($? != 0 || !@data) { blackAndWhite("NeutronServerConnection",1); } else { blackAndWhite("NeutronServerConnection",0); }
@@ -269,8 +252,6 @@ sub checkNeutronServer {
 
 sub checkNeutron {
     my @data;
-    my $host = `hostname`;
-    chomp($host);
     if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
         checkOvs();
         if ( -e '/usr/bin/neutron' ) {
@@ -298,7 +279,7 @@ sub checkNeutron {
             for my $i (@service_list) {
                 while ( my ($key, $value) = each %{$i} ) {
                     if ( $key =~ m/DHCP/){ checkMetadata() };
-                    if ( $value eq 'XXX' || $value eq 'xxx' ) { print "metric $key string Neutron Agent Down\n"; }
+                    if ( $value eq 'XXX' || $value eq 'xxx' ) { print "metric $key string $host:Neutron Agent Down\n"; }
                 }
             }
         }
@@ -306,10 +287,8 @@ sub checkNeutron {
 }
 
 sub checkCinder {
-    my $host = `hostname`;
     my @data;
     my $localApi;
-    chomp($host);
     if ( -e '/etc/init.d/cinder-api' || -e '/etc/init.d/openstack-cinder-api' || -e '/lib/systemd/system/openstack-cinder-api.service' ){
         $localApi = 1;
         @data = `curl -f -s -i http://$host:8776/v1/$keystone_tenant/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $keystone_token"`;
@@ -334,7 +313,7 @@ sub checkCinder {
             my @line = split(' ',$_);
             chop($line[5]);
             if ($line[5] =~ $host){
-                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ print "metric $line[2] string Cinder Service Down\n";
+                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ print "metric $line[2] string $host:Cinder Service Down\n";
                 }
             }
         }
@@ -344,8 +323,8 @@ sub checkCinder {
         my $vgSize = substr(`vgs -o size --noheadings --units b $volume_name 2>/dev/null`,0,-2);
         my $vgFree = substr(`vgs -o free --noheadings --units b $volume_name 2>/dev/null`,0,-2);
         my $vgUsed = $vgSize - $vgFree;
-        print "metric CinderVGSize double ",$vgSize,"\n";
-        print "metric CinderVGUsed double ",$vgUsed,"\n";
+        print "metric CinderVGSize double ",$host.":".$vgSize,"\n";
+        print "metric CinderVGUsed double ",$host.":".$vgUsed,"\n";
     }
 }
 
@@ -410,5 +389,4 @@ sub readConfig {
 
 readConfig();
 timeout();
-print "status 0\n";
 exit(0);
