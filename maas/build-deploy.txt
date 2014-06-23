@@ -1,0 +1,2 @@
+copy openstack-deployment-header.sh to deployment filename
+tar czf - <files and directories for deployment> >> <filename>
