@@ -341,6 +341,7 @@ sub checkNova {
             if ( $value eq 'XXX' ) {
                 if (!defined($config->{'status'}->{$key}->{'samples'})){$config->{'status'}->{$key}->{'samples'} = 0;};
                 $config->{'status'}->{$key}->{'samples'}++;
+                nimLog(1, "Nova Service $key is not checking in: $config->{'status'}->{$key}->{'samples'} of $config->{'setup'}->{'samples'} samples");
                 if ($config->{'status'}->{$key}->{'samples'} >= $config->{'setup'}->{'samples'}) {
                     if ($config->{'status'}->{'nova'}->{'triggered'} == 0){
                         nimLog(1, "Critical alert on nova service $key");
