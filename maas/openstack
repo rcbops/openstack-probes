@@ -1,7 +1,0 @@
-#! /bin/bash
-for i in $(ls /var/lib/lxc)
-do
-    lxc-attach -n $i -- /monitoring/lxc-openstack 2>> /monitoring/monitoring.log
-done
-/monitoring/lxc-openstack 2>> /monitoring/monitoring.log 
-echo "status 0"

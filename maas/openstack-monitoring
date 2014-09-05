@@ -14,9 +14,9 @@
 #
 
 my $os_username="admin";
-my $os_password="secrete";
+my $os_password="3FR37Vpo2ykUv9fVhPXS7BnZ";
 my $os_tenant="admin";
-my $os_auth_url="http://23.253.238.179:5000/v2.0";
+my $os_auth_url="http://192.168.6.2:5000/v2.0";
 my $network_type="neutron";
 my $admin_token;
 my $bind_host;
@@ -29,6 +29,8 @@ my $mariaUser;
 my $mariaPass;
 my $volume_name="cinder-volumes";
 my $host = `hostname`;
+my @metrics = ();
+
 chomp($host);
 
 
@@ -38,18 +40,18 @@ use Getopt::Std;
 use Data::Dumper;
 use feature "switch";
 use Socket;
-use lib '/monitoring/lib';
-use lib './lib';
+use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
+use Time::HiRes
 
-my $version = '0.26';
+my $version = '0.27';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
         my @data = `/usr/bin/time -f "%e" ovsdb-client list-dbs 2>&1`;
-        if ( $? != 0 || !@data ){ print "metric OvsDB double -1\n"; } else { print "metric OvsDB double $data[-1]"; }
+        if ( $? != 0 || !@data ){ push(@metrics,'metric OvsDB double -1'); } else { push(@metrics,'metric OvsDB double '.$data[-1]); }
         @data = `/usr/bin/time -f "%e" ovs-vsctl list-br 2>&1`;
-        if ( $? != 0 || !@data ){ print "metric OvsSwitchd double -1\n"; } else { print "metric OvsSwitchd double $data[-1]" }
+        if ( $? != 0 || !@data ){ push(@metrics,'metric OvsSwitchd double -1'); } else { push(@metrics,'metric OvsSwitchd double '.$data[-1]); }
     }
 }
 
@@ -57,9 +59,9 @@ sub checkHorizon {
     if (-e '/etc/openstack-dashboard'){
         my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
         my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6080/vnc_auto.html 2>&1`;
-        if ( $? != 0 || !@data ){ print "metric NoVncProxy double -1\n"; } else { print "metric NoVncProxy double $data[-1]"; }
+        if ( $? != 0 || !@data ){ push(@metrics,"metric NoVncProxy double -1"); } else { push(@metrics,"metric NoVncProxy double $data[-1]"); }
         @data = `/usr/bin/time -f "%e" curl -f -s -k https://$address 2>&1`;
-        if ( $? != 0 || !@data ){ print "metric Horizon double -1\n"; } else { print "metric Horizon double $data[-1]"; }
+        if ( $? != 0 || !@data ){ push(@metrics, "metric Horizon double -1"); } else { push(@metrics, "metric Horizon double $data[-1]"); }
         }
 }
 
@@ -71,9 +73,9 @@ sub checkMemcached {
         my $sock1 = IO::Socket::INET->new(PeerAddr => $host1, Proto => 'tcp');
         my $diff = Time::HiRes::tv_interval($start_time);
         if ( $sock || $sock1 ) { 
-            print "metric MemCached double $diff\n"; 
+            push(@metrics, "metric MemCached double $diff\n"); 
             if ( $sock ) { $sock->close(); } else { $sock1->close(); }
-        } else { print "metric MemCached double -1\n"; }
+        } else { push(@metrics, "metric MemCached double -1"); }
     }
 }
 
@@ -85,10 +87,10 @@ sub checkMetadata {
     my @lsuuids;
     foreach my $str (@data) { if ( $str =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) { push(@lsuuids, lc($1)); } }
     my @data;
-    if ( -e '/usr/local/bin/neutron') {
-        @data = `/usr/local/bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
+    if ( -e '/usr/bin/neutron') {
+        @data = `/usr//bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
     } else {
-        @data = `/usr/local/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
+        @data = `/usr/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
     }
     chomp(@data);
     my @netUuids;
@@ -111,9 +113,9 @@ sub checkMetadata {
         $value =~ s/^\s*(.*?)\s*$/$1/;
         my @response = `/usr/bin/time -f "%e" ip netns exec qdhcp-$value curl -f -s 169.254.169.254 2>&1`;
         if ( $? ne "5632" ) { 
-            print "metric metadata:$value double -1\n";
+            push(@metrics, "metric metadata:$value double -1");
             $thatsBad = 1;
-        } else { print "metric metadata:$value double $response[-1]"; } 
+        } else { push(@metrics, "metric metadata:$value double $response[-1]"); } 
     }
     if ($thatsBad == 1){
         my @try = `pkill dnsmasq`;
@@ -132,26 +134,26 @@ sub checkMetadata {
 sub checkMaria {
     my @data;
     if ( -e '/etc/init.d/mysql' ) {
-        @data = `/usr/bin/time -f "%e" /usr/bin/mysql -e "SHOW STATUS LIKE 'wsrep%';" 2>&1`;
-        if ($? != 0 || !@data) { print "metric Mysql double -1\n"; return; } else { print "metric Mysql double $data[-1]"; }
+        @data = `/usr/bin/time -f "%e" /usr/bin/mysql -h $host -e "show slave status\\G" 2>&1`;
+        if ($? != 0 || !@data) { push(@metrics, "metric Mysql double -1"); return; } else { push(@metrics, "metric Mysql double $data[-1]"); }
         my $queues_list = {};
         foreach my $line (@data) {
-            my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
+            my @values = split (':',$line);
+            $values[0] =~ s/^\s*(.*?)\s*$/$1/;
+            $values[1] =~ s/^\s*(.*?)\s*$/$1/;
+            my ($key, $value) = @values;
             next if (!defined($key) || !defined($value));
             $queues_list->{$key} = $value;
         }
         while ( my ($key, $value) = each(%$queues_list) ) {
-            if ($key eq "wsrep_cluster_state_uuid"){
-                print "metric $key string $value\n"; 
+            if ($key eq "Slave_IO_Running"){
+                push(@metrics, "metric $key string $value\n"); 
             }
-            if ($key eq "wsrep_cluster_status"){
-                print "metric $key string $value\n"; 
+            if ($key eq "Slave_SQL_Running"){
+                push(@metrics, "metric $key string $value\n"); 
             }
-            if ($key eq "wsrep_local_state_uuid"){
-                print "metric $key string $value\n"; 
-            }
-            if ($key eq "wsrep_local_state_comment"){
-                print "metric $key string $value\n"; 
+            if ($key eq "Seconds_Behind_Master"){
+                push(@metrics, "metric $key string $value\n"); 
             }
         }
     } 
@@ -161,9 +163,9 @@ sub checkRabbit {
     my @data;
     if ( -e '/etc/init.d/rabbitmq-server' ) {
         @data = `/usr/bin/time -f "%e" /usr/sbin/rabbitmqctl list_queues 2>&1`;
-        if ($? != 0 || !@data) { print "metric Rabbit double -1\n"; return; }
+        if ($? != 0 || !@data) { push(@metrics, "metric Rabbit double -1"); return; }
         my $queues_list = {};
-        print "metric Rabbit double $data[-1]";
+        push(@metrics, "metric Rabbit double $data[-1]");
         foreach my $line (@data) {
             my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
             next if (!defined($key) || !defined($value));
@@ -171,7 +173,7 @@ sub checkRabbit {
         }
         while ( my ($key, $value) = each(%$queues_list) ) {
             if ($value > 0){
-                print "metric RabbitQ:$key int32 $value\n"; 
+                push(@metrics, "metric RabbitQ:$key int32 $value"); 
             }
         }
     } 
@@ -179,9 +181,9 @@ sub checkRabbit {
 
 sub checkNova {
     my @data;
-    if ( -e '/usr/local/bin/nova-manage' ) {
-        @data = `/usr/bin/time -f "%e" /usr/local/bin/nova-manage service list 2>&1`;
-        if ($? != 0 || !@data) { print "metric Nova double -1\n"; return; } else { print "metric Nova double $data[-1]"; }
+    if ( -e '/usr/bin/nova-manage' ) {
+        @data = `/usr/bin/time -f "%e" /usr/bin/nova-manage service list 2>&1`;
+        if ($? != 0 || !@data) { push(@metrics, "metric Nova double -1"); return; } else { push(@metrics, "metric Nova double $data[-1]"); }
         my $service_list = {};
         shift @data;
         foreach my $line (@data) {
@@ -190,16 +192,16 @@ sub checkNova {
                 $service_list->{$values[0]} = $values[4];
             }
         }
-        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { print "metric $key string Down\n"; } }
+        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { push(@metrics, "metric $key string Down\n"); } }
     }
 }
 
 sub checkKeystone {
     my @data;
     if (-e '/etc/keystone/keystone.conf' and -e '/etc/init.d/keystone-all' ){
-        @data = `/usr/bin/time -f "%e" /usr/local/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>&1`;
-        if ($? != 0 || !@data) { print "metric Keystone double -1\n"; 
-        } else { print "metric Keystone double $data[-1]";
+        @data = `/usr/bin/time -f "%e" /usr/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>&1`;
+        if ($? != 0 || !@data) { push(@metrics, "metric Keystone double -1"); 
+        } else { push(@metrics, "metric Keystone double $data[-1]");
             my @token = split(' ',@data[4]);
             $keystone_token = @token[3];
             my @token = split(' ',@data[5]);
@@ -208,7 +210,7 @@ sub checkKeystone {
             $keystone_user = @token[3];
         } 
     } else {
-        @data = `/usr/local/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password token-get 2>&1`;
+        @data = `/usr/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password token-get 2>&1`;
         if ($? != 0 || !@data) { 
             return; 
         } else { 
@@ -225,63 +227,63 @@ sub checkKeystone {
 sub checkSwiftProxy {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:8080/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ print "metric SwiftProxy double -1\n"; } else { print "SwiftProxy double $data[-1]"; }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftProxy double -1"); } else { push(@metrics, "SwiftProxy double $data[-1]"); }
 }
 
 sub checkSwiftAccount {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6002/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ print "metric SwiftAccount double -1\n"; } else { print "SwiftAccount double $data[-1]"; }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftAccount double -1"); } else { push(@metrics, "SwiftAccount double $data[-1]"); }
 }
 
 sub checkSwiftContainer {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6001/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ print "metric SwiftContainer double -1\n"; } else { print "SwiftContainer double $data[-1]"; }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftContainer double -1"); } else { push(@metrics, "SwiftContainer double $data[-1]"); }
 }
 
 sub checkSwiftObject {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6000/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ print "metric SwiftObject double -1\n"; } else { print "SwiftObject double $data[-1]"; }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftObject double -1"); } else { push(@metrics, "SwiftObject double $data[-1]"); }
 }
 
 sub checkSwift {
     if ( -e '/etc/rc3.d/S98openstack-swift-proxy' || -e '/etc/init/swift-proxy.conf' ) { 
-        my $out = `echo " ------- SWIFT-PROXY   START ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-PROXY   START ------------ " >> /var/log/monitoring.log`;
         checkSwiftProxy();
-        my $out = `echo " ------- SWIFT-PROXY   STOP ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-PROXY   STOP ------------ " >> /var/log/monitoring.log`;
     }
     if ( -e '/etc/rc3.d/S98openstack-swift-account' || -e '/etc/init/swift-account.conf' ) {
-        my $out = `echo " ------- SWIFT-ACCOUNT   START ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-ACCOUNT   START ------------ " >> /var/log/monitoring.log`;
         checkSwiftAccount();
-        my $out = `echo " ------- SWIFT-ACCOUNT   STOP ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-ACCOUNT   STOP ------------ " >> /var/log/monitoring.log`;
     }
     if ( -e '/etc/rc3.d/S98openstack-swift-container' || -e '/etc/init/swift-container.conf' ) {
-        my $out = `echo " ------- SWIFT-CONTAINER   START ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-CONTAINER   START ------------ " >> /var/log/monitoring.log`;
         checkSwiftContainer();
-        my $out = `echo " ------- SWIFT-CONTAINER   STOP ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-CONTAINER   STOP ------------ " >> /var/log/monitoring.log`;
     }
     if ( -e '/etc/rc3.d/S98openstack-swift-object' || -e '/etc/init/swift-object.conf' ) {
-        my $out = `echo " ------- SWIFT-OBJECT   START ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-OBJECT   START ------------ " >> /var/log/monitoring.log`;
         checkSwiftObject();
-        my $out = `echo " ------- SWIFT-OBJECT   STOP ------------ " >> /monitoring/monitoring.log`;
+        my $out = `echo " ------- SWIFT-OBJECT   STOP ------------ " >> /var/log/monitoring.log`;
     }
 }
 
 sub checkGlance_api {
     my @data;
     if (-e '/etc/glance/glance-api.conf' and -e '/etc/init.d/glance-api' ){
-        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://127.0.0.1:9292/v1/images/detail?limit=10 2>&1`;
-        if ( $? != 0 || !@data ){ print "metric Glance-Api double -1\n"; } else { print "metric Glance-Api double $data[-1]"; }
+        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://169.254.123.1:9292/v1/images/detail?limit=10 2>&1`;
+        if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Api double -1"); } else { push(@metrics, "metric Glance-Api double $data[-1]"); }
     }
 }
 
 sub checkGlance_registry {
     my @data;
     if (-e '/etc/glance/glance-registry.conf' and -e '/etc/init.d/glance-registry' ){
-        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://127.0.0.1:9191/images 2>&1`;
-        if ( $? != 0 || !@data ){ print "metric Glance-Registry double -1\n"; } else { print "metric Glance-Registry double $data[-1]"; }
+        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://169.254.123.1:9191/images 2>&1`;
+        if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Registry double -1"); } else { push(@metrics, "metric Glance-Registry double $data[-1]"); }
     }
 }
 
@@ -289,8 +291,8 @@ sub checkNeutronServer {
     my @data;
     if ( -e '/etc/init.d/neutron-server' || -e '/etc/init.d/quantum-server' ) {
         if ( -e '/etc/neutron/neutron.conf' || -e '/etc/quantum/quantum.conf') {
-            @data = `/usr/bin/time -f "%e" curl -f -H "X-Auth-Token:$keystone_token" http://$host:9696/v2.0/networks 2>&1`;
-            if ( $? ne "5632" || !@data ){ print "metric NeutronServer double -1\n"; } else { print "metric NeutronServer double $data[-1]"; }
+            @data = `/usr/bin/time -f "\n%e" curl -s -f -H "X-Auth-Token:$keystone_token" http://$host:9696/v2.0/networks 2>&1`;
+            if ( $? ne "0" || !@data ){ push(@metrics, "metric NeutronServer double -1"); } else { push(@metrics, "metric NeutronServer double $data[-1]"); }
         }
     }
 }
@@ -299,15 +301,15 @@ sub checkNeutron {
     my @data;
     if ( -e '/etc/neutron' || -e '/etc/quantum' ) {
         checkOvs();
-        if ( -e '/usr/local/bin/neutron' ) {
-            @data = `/usr/bin/time -f "%e" /usr/local/bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>&1`;
+        if ( -e '/usr/bin/neutron' ) {
+            @data = `/usr/bin/time -f "%e" /usr/bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>&1`;
         } else {
-            @data = `/usr/bin/time -f "%e" /usr/local/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>&1`;
+            @data = `/usr/bin/time -f "%e" /usr/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>&1`;
         }
         if ($? != 0 || !@data) {
-            print "metric Neutron double -1\n";
+            push(@metrics, "metric Neutron double -1");
         } else {
-            print "metric Neutron double $data[-1]";
+            push(@metrics, "metric Neutron double $data[-1]");
             my @service_list;
             shift @data;
             shift @data;
@@ -324,7 +326,7 @@ sub checkNeutron {
             for my $i (@service_list) {
                 while ( my ($key, $value) = each %{$i} ) {
                     if ( $key =~ m/DHCP/){ checkMetadata() };
-                    if ( $value eq 'XXX' || $value eq 'xxx' ) { print "metric $key string Down\n"; }
+                    if ( $value eq 'XXX' || $value eq 'xxx' ) { push(@metrics, "metric $key string Down"); }
                 }
             }
         }
@@ -346,7 +348,7 @@ sub checkCinder {
     }
     if ($? != 0 || !@data) {
         if ( $localApi == 1 ){
-            if ($? ne "5632"){ print "metric Cinder double -1\n"; } else { print "metric Cinder double $data[-1]"; }
+            if ($? ne "5632"){ push(@metrics, "metric Cinder double -1"); } else { push(@metrics, "metric Cinder double $data[-1]"); }
         }
     } else {
         my $last = pop @data;
@@ -357,8 +359,7 @@ sub checkCinder {
             my @line = split(' ',$_);
             chop($line[5]);
             if ($line[5] =~ $host){
-                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ print "metric $line[2] string Down\n";
-                }
+                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ push(@metrics, "metric $line[2] string Down"); }
             }
         }
     }
@@ -367,8 +368,8 @@ sub checkCinder {
         my $vgSize = substr(`vgs -o size --noheadings --units b $volume_name 2>/dev/null`,0,-2);
         my $vgFree = substr(`vgs -o free --noheadings --units b $volume_name 2>/dev/null`,0,-2);
         my $vgUsed = $vgSize - $vgFree;
-        print "metric CinderVGSize int64 ",$vgSize,"\n";
-        print "metric CinderVGUsed int64 ",$vgUsed,"\n";
+        push(@metrics, "metric CinderVGSize int64 $vgSize\n");
+        push(@metrics, "metric CinderVGUsed int64 $vgUsed\n");
     }
 }
 
@@ -376,56 +377,56 @@ sub checkKvm {
     my @data;
     if (-e '/usr/bin/virsh' ){
         @data = `/usr/bin/time -f "%e" /usr/bin/virsh sysinfo 2>&1`;
-        if ($? != 0 || !@data) { print "metric Kvm double -1\n"; } else { print "metric Kvm double $data[-1]"; } 
+        if ($? != 0 || !@data) { push(@metrics, "metric Kvm double -1"); } else { push(@metrics, "metric Kvm double $data[-1]"); } 
     }
 }
 
 sub timeout {
-    my $out = `echo " ------------------- " >> /monitoring/monitoring.log`;
-    my $out = `echo $host." -- Start" >> /monitoring/monitoring.log`;
-    my $out = `echo " ------------------- " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- KEYSTONE   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------------------- " >> /var/log/monitoring.log`;
+    my $out = `echo $host." -- Start" >> /var/log/monitoring.log`;
+    my $out = `echo " ------------------- " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- KEYSTONE   START ------------ " >> /var/log/monitoring.log`;
     checkKeystone();
-    my $out = `echo " ------- KEYSTONE   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- MEMCACHED   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- KEYSTONE   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- MEMCACHED   START ------------ " >> /var/log/monitoring.log`;
     checkMemcached();
-    my $out = `echo " ------- MEMCACHED   STOP ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- MEMCACHED   STOP ------------ " >> /var/log/monitoring.log`;
     if (defined $network_type){
         if ($network_type eq 'neutron'){
-    my $out = `echo " ------- NEUTRON-SERVER   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- NEUTRON-SERVER   START ------------ " >> /var/log/monitoring.log`;
             checkNeutronServer();
-    my $out = `echo " ------- NEUTRON-SERVER   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- NEUTRON   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- NEUTRON-SERVER   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- NEUTRON   START ------------ " >> /var/log/monitoring.log`;
             checkNeutron();
-    my $out = `echo " ------- NEUTRON   STOP ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- NEUTRON   STOP ------------ " >> /var/log/monitoring.log`;
         }
     }
-    my $out = `echo " ------- RABBIT   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- RABBIT   START ------------ " >> /var/log/monitoring.log`;
     checkRabbit();
-    my $out = `echo " ------- RABBIT   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- NOVA   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- RABBIT   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- NOVA   START ------------ " >> /var/log/monitoring.log`;
     checkNova();
-    my $out = `echo " ------- NOVA   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- CINDER   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- NOVA   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- CINDER   START ------------ " >> /var/log/monitoring.log`;
     checkCinder();
-    my $out = `echo " ------- CINDER   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- GLANCE-API   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- CINDER   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- GLANCE-API   START ------------ " >> /var/log/monitoring.log`;
     checkGlance_api();
-    my $out = `echo " ------- GLANCE-API   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- GLANCE-REGISTRY   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- GLANCE-API   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- GLANCE-REGISTRY   START ------------ " >> /var/log/monitoring.log`;
     checkGlance_registry();
-    my $out = `echo " ------- GLANCE-REGISTRY   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- KVM   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- GLANCE-REGISTRY   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- KVM   START ------------ " >> /var/log/monitoring.log`;
     checkKvm();
-    my $out = `echo " ------- KVM   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo " ------- HORIZON   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- KVM   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo " ------- HORIZON   START ------------ " >> /var/log/monitoring.log`;
     checkHorizon();
-    my $out = `echo " ------- HORIZON   STOP ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- HORIZON   STOP ------------ " >> /var/log/monitoring.log`;
     checkSwift();
-    my $out = `echo " ------- MARIA   START ------------ " >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- MARIA   START ------------ " >> /var/log/monitoring.log`;
     checkMaria();
-    my $out = `echo " ------- MARIA   STOP ------------ " >> /monitoring/monitoring.log`;
-    my $out = `echo $host." -- Stop" >> /monitoring/monitoring.log`;
+    my $out = `echo " ------- MARIA   STOP ------------ " >> /var/log/monitoring.log`;
+    my $out = `echo $host." -- Stop" >> /var/log/monitoring.log`;
 }
 
 sub readConfig {
@@ -470,4 +471,6 @@ sub readConfig {
 
 readConfig();
 timeout();
+print "status Okay\n";
+foreach (@metrics) { print $_;}
 exit(0);
