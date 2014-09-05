@@ -44,14 +44,14 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.27';
+my $version = '0.28';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
         my @data = `/usr/bin/time -f "%e" ovsdb-client list-dbs 2>&1`;
-        if ( $? != 0 || !@data ){ push(@metrics,'metric OvsDB double -1'); } else { push(@metrics,'metric OvsDB double '.$data[-1]); }
+        if ( $? != 0 || !@data ){ push(@metrics,'metric OvsDB double -1\n'); } else { push(@metrics,'metric OvsDB double '.$data[-1]); }
         @data = `/usr/bin/time -f "%e" ovs-vsctl list-br 2>&1`;
-        if ( $? != 0 || !@data ){ push(@metrics,'metric OvsSwitchd double -1'); } else { push(@metrics,'metric OvsSwitchd double '.$data[-1]); }
+        if ( $? != 0 || !@data ){ push(@metrics,'metric OvsSwitchd double -1\n'); } else { push(@metrics,'metric OvsSwitchd double '.$data[-1]); }
     }
 }
 
@@ -59,9 +59,9 @@ sub checkHorizon {
     if (-e '/etc/openstack-dashboard'){
         my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
         my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6080/vnc_auto.html 2>&1`;
-        if ( $? != 0 || !@data ){ push(@metrics,"metric NoVncProxy double -1"); } else { push(@metrics,"metric NoVncProxy double $data[-1]"); }
+        if ( $? != 0 || !@data ){ push(@metrics,"metric NoVncProxy double -1\n"); } else { push(@metrics,"metric NoVncProxy double $data[-1]"); }
         @data = `/usr/bin/time -f "%e" curl -f -s -k https://$address 2>&1`;
-        if ( $? != 0 || !@data ){ push(@metrics, "metric Horizon double -1"); } else { push(@metrics, "metric Horizon double $data[-1]"); }
+        if ( $? != 0 || !@data ){ push(@metrics, "metric Horizon double -1\n"); } else { push(@metrics, "metric Horizon double $data[-1]"); }
         }
 }
 
@@ -75,7 +75,7 @@ sub checkMemcached {
         if ( $sock || $sock1 ) { 
             push(@metrics, "metric MemCached double $diff\n"); 
             if ( $sock ) { $sock->close(); } else { $sock1->close(); }
-        } else { push(@metrics, "metric MemCached double -1"); }
+        } else { push(@metrics, "metric MemCached double -1\n"); }
     }
 }
 
@@ -113,7 +113,7 @@ sub checkMetadata {
         $value =~ s/^\s*(.*?)\s*$/$1/;
         my @response = `/usr/bin/time -f "%e" ip netns exec qdhcp-$value curl -f -s 169.254.169.254 2>&1`;
         if ( $? ne "5632" ) { 
-            push(@metrics, "metric metadata:$value double -1");
+            push(@metrics, "metric metadata:$value double -1\n");
             $thatsBad = 1;
         } else { push(@metrics, "metric metadata:$value double $response[-1]"); } 
     }
@@ -135,7 +135,7 @@ sub checkMaria {
     my @data;
     if ( -e '/etc/init.d/mysql' ) {
         @data = `/usr/bin/time -f "%e" /usr/bin/mysql -h $host -e "show slave status\\G" 2>&1`;
-        if ($? != 0 || !@data) { push(@metrics, "metric Mysql double -1"); return; } else { push(@metrics, "metric Mysql double $data[-1]"); }
+        if ($? != 0 || !@data) { push(@metrics, "metric Mysql double -1\n"); return; } else { push(@metrics, "metric Mysql double $data[-1]"); }
         my $queues_list = {};
         foreach my $line (@data) {
             my @values = split (':',$line);
@@ -163,7 +163,7 @@ sub checkRabbit {
     my @data;
     if ( -e '/etc/init.d/rabbitmq-server' ) {
         @data = `/usr/bin/time -f "%e" /usr/sbin/rabbitmqctl list_queues 2>&1`;
-        if ($? != 0 || !@data) { push(@metrics, "metric Rabbit double -1"); return; }
+        if ($? != 0 || !@data) { push(@metrics, "metric Rabbit double -1\n"); return; }
         my $queues_list = {};
         push(@metrics, "metric Rabbit double $data[-1]");
         foreach my $line (@data) {
@@ -183,7 +183,7 @@ sub checkNova {
     my @data;
     if ( -e '/usr/bin/nova-manage' ) {
         @data = `/usr/bin/time -f "%e" /usr/bin/nova-manage service list 2>&1`;
-        if ($? != 0 || !@data) { push(@metrics, "metric Nova double -1"); return; } else { push(@metrics, "metric Nova double $data[-1]"); }
+        if ($? != 0 || !@data) { push(@metrics, "metric Nova double -1\n"); return; } else { push(@metrics, "metric Nova double $data[-1]"); }
         my $service_list = {};
         shift @data;
         foreach my $line (@data) {
@@ -200,7 +200,7 @@ sub checkKeystone {
     my @data;
     if (-e '/etc/keystone/keystone.conf' and -e '/etc/init.d/keystone-all' ){
         @data = `/usr/bin/time -f "%e" /usr/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>&1`;
-        if ($? != 0 || !@data) { push(@metrics, "metric Keystone double -1"); 
+        if ($? != 0 || !@data) { push(@metrics, "metric Keystone double -1\n"); 
         } else { push(@metrics, "metric Keystone double $data[-1]");
             my @token = split(' ',@data[4]);
             $keystone_token = @token[3];
@@ -227,25 +227,25 @@ sub checkKeystone {
 sub checkSwiftProxy {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:8080/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftProxy double -1"); } else { push(@metrics, "SwiftProxy double $data[-1]"); }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftProxy double -1\n"); } else { push(@metrics, "SwiftProxy double $data[-1]"); }
 }
 
 sub checkSwiftAccount {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6002/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftAccount double -1"); } else { push(@metrics, "SwiftAccount double $data[-1]"); }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftAccount double -1\n"); } else { push(@metrics, "SwiftAccount double $data[-1]"); }
 }
 
 sub checkSwiftContainer {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6001/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftContainer double -1"); } else { push(@metrics, "SwiftContainer double $data[-1]"); }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftContainer double -1\n"); } else { push(@metrics, "SwiftContainer double $data[-1]"); }
 }
 
 sub checkSwiftObject {
     my $address = inet_ntoa( scalar gethostbyname( $host || 'localhost' ));
     my @data = `/usr/bin/time -f "%e" curl -f -s http://$address:6000/healthcheck 2>&1`;
-    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftObject double -1"); } else { push(@metrics, "SwiftObject double $data[-1]"); }
+    if ( $? != 0 || !@data ){ push(@metrics, "metric SwiftObject double -1\n"); } else { push(@metrics, "SwiftObject double $data[-1]"); }
 }
 
 sub checkSwift {
@@ -275,7 +275,7 @@ sub checkGlance_api {
     my @data;
     if (-e '/etc/glance/glance-api.conf' and -e '/etc/init.d/glance-api' ){
         @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://169.254.123.1:9292/v1/images/detail?limit=10 2>&1`;
-        if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Api double -1"); } else { push(@metrics, "metric Glance-Api double $data[-1]"); }
+        if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Api double -1\n"); } else { push(@metrics, "metric Glance-Api double $data[-1]"); }
     }
 }
 
@@ -283,7 +283,7 @@ sub checkGlance_registry {
     my @data;
     if (-e '/etc/glance/glance-registry.conf' and -e '/etc/init.d/glance-registry' ){
         @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://169.254.123.1:9191/images 2>&1`;
-        if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Registry double -1"); } else { push(@metrics, "metric Glance-Registry double $data[-1]"); }
+        if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Registry double -1\n"); } else { push(@metrics, "metric Glance-Registry double $data[-1]"); }
     }
 }
 
@@ -292,7 +292,7 @@ sub checkNeutronServer {
     if ( -e '/etc/init.d/neutron-server' || -e '/etc/init.d/quantum-server' ) {
         if ( -e '/etc/neutron/neutron.conf' || -e '/etc/quantum/quantum.conf') {
             @data = `/usr/bin/time -f "\n%e" curl -s -f -H "X-Auth-Token:$keystone_token" http://$host:9696/v2.0/networks 2>&1`;
-            if ( $? ne "0" || !@data ){ push(@metrics, "metric NeutronServer double -1"); } else { push(@metrics, "metric NeutronServer double $data[-1]"); }
+            if ( $? ne "0" || !@data ){ push(@metrics, "metric NeutronServer double -1\n"); } else { push(@metrics, "metric NeutronServer double $data[-1]"); }
         }
     }
 }
@@ -307,7 +307,7 @@ sub checkNeutron {
             @data = `/usr/bin/time -f "%e" /usr/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password agent-list 2>&1`;
         }
         if ($? != 0 || !@data) {
-            push(@metrics, "metric Neutron double -1");
+            push(@metrics, "metric Neutron double -1\n");
         } else {
             push(@metrics, "metric Neutron double $data[-1]");
             my @service_list;
@@ -348,7 +348,7 @@ sub checkCinder {
     }
     if ($? != 0 || !@data) {
         if ( $localApi == 1 ){
-            if ($? ne "5632"){ push(@metrics, "metric Cinder double -1"); } else { push(@metrics, "metric Cinder double $data[-1]"); }
+            if ($? ne "5632"){ push(@metrics, "metric Cinder double -1\n"); } else { push(@metrics, "metric Cinder double $data[-1]"); }
         }
     } else {
         my $last = pop @data;
@@ -377,7 +377,7 @@ sub checkKvm {
     my @data;
     if (-e '/usr/bin/virsh' ){
         @data = `/usr/bin/time -f "%e" /usr/bin/virsh sysinfo 2>&1`;
-        if ($? != 0 || !@data) { push(@metrics, "metric Kvm double -1"); } else { push(@metrics, "metric Kvm double $data[-1]"); } 
+        if ($? != 0 || !@data) { push(@metrics, "metric Kvm double -1\n"); } else { push(@metrics, "metric Kvm double $data[-1]"); } 
     }
 }
 
