@@ -44,7 +44,7 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.28';
+my $version = '0.29';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
@@ -274,7 +274,7 @@ sub checkSwift {
 sub checkGlance_api {
     my @data;
     if (-e '/etc/glance/glance-api.conf' and -e '/etc/init.d/glance-api' ){
-        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://169.254.123.1:9292/v1/images/detail?limit=10 2>&1`;
+        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://$host:9292/v1/images/detail?limit=10 2>&1`;
         if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Api double -1\n"); } else { push(@metrics, "metric Glance-Api double $data[-1]"); }
     }
 }
@@ -282,7 +282,7 @@ sub checkGlance_api {
 sub checkGlance_registry {
     my @data;
     if (-e '/etc/glance/glance-registry.conf' and -e '/etc/init.d/glance-registry' ){
-        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://169.254.123.1:9191/images 2>&1`;
+        @data = `/usr/bin/time -f "%e" curl --output /dev/null -sH "X-Auth-Token: $keystone_token" http://$host:9191/images 2>&1`;
         if ( $? != 0 || !@data ){ push(@metrics, "metric Glance-Registry double -1\n"); } else { push(@metrics, "metric Glance-Registry double $data[-1]"); }
     }
 }
