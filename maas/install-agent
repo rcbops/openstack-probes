@@ -134,8 +134,8 @@ def link_agent_to_entity(cm, entity, account, device):
 
 
 def dlfile():
-    gitUrl = "https://github.com/rsoprivatecloud/openstack-probes/"
-    gitUrl += "raw/master/openstack-deploy"
+    gitUrl = ("https://github.com/rcbops/openstack-probes/"
+              "raw/master/maas/openstack-deploy")
     f = urllib2.urlopen(gitUrl)
     with open(
             "/usr/lib/rackspace-monitoring-agent/plugins/openstack-deploy",
