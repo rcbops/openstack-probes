@@ -172,7 +172,7 @@ def create_plugin_check():
                 "type": check_type,
                 "timeout": args.timeout,
                 "period": args.period,
-                "details": {"file": "openstack"}
+                "details": {"file": "openstack-monitoring"}
             })
             installDir = '/usr/lib/rackspace-monitoring-agent/plugins'
             if not os.path.isdir(installDir):
