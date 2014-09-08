@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import urllib2
 import argparse
-import sys
 import os
 import subprocess
+import sys
+import urllib2
 
 try:
     import json
@@ -76,7 +76,7 @@ def request(url, auth_token=None, data=None):
     if data:
         data = json.dumps(data)
 
-    print url
+    print (url)
     req = urllib2.Request(url, data, headers)
     res = urllib2.build_opener(RestHTTPErrorProcessor).open(req)
     if res.code == 200:
@@ -107,9 +107,9 @@ def put_request(url, auth_token=None, data=None):
 
 
 def write_rba(name, desc):
-    print "RBA START", name
-    print desc
-    print "RBA END", name
+    print ("RBA START", name)
+    print (desc)
+    print ("RBA END", name)
 
 
 def link_agent_to_entity(cm, entity, account, device):
@@ -118,16 +118,16 @@ def link_agent_to_entity(cm, entity, account, device):
         # Get existing agent id if it exists
         agent_id = cm.get_agent_id(entity)
     except Exception as err:
-        print "Exception suppressed: Couldn't retrieve agent id, \
-            creating new one. " + str(err)
+        print ("Exception suppressed: Couldn't retrieve agent id, \
+            creating new one. " + str(err))
 
     if not agent_id:
         agent_id = account+"-"+device
         try:
             # Associate the agent id with the entity.
             cm.set_agent_id(entity, {"agent_id": agent_id})
-        except:
-            write_rba("Status", "Couldn't create new agent id.")
+        except Exception as err:
+            write_rba("Status", "Couldn't create new agent id." + str(err))
             raise
 
     return agent_id
@@ -149,15 +149,16 @@ def get_agent_token(cm, agent_id):
         agent_token = cm.get_my_token(agent_id)
     except Exception as err:
         agent_token = None
-        print "Exception suppressed: Couldn't retrieve agent token,\
-                creating new one. " + str(err)
+        print ("Exception suppressed: Couldn't retrieve agent token,\
+                creating new one. " + str(err))
 
     if not agent_token:
         try:
             # Create the agent token.
             agent_token = cm.create_token({"label": agent_id})
-        except:
-            write_rba("Status", "Request Failed: Couldn't create agent id.")
+        except Exception as err:
+            write_rba("Status",
+                      "Request Failed: Couldn't create agent id." + str(err))
             raise
 
     return agent_token
@@ -184,21 +185,21 @@ def create_plugin_check():
             p = subprocess.Popen(["/bin/bash", param], cwd=workingDir)
             p.wait()
 
-            print "OpenStack plugin check created"
-        except:
+            print ("OpenStack plugin check created")
+        except Exception as err:
             write_rba(
                 "Status",
-                "Request Failed: Couldn't create OpenStack check")
+                "Request Failed: Couldn't create OpenStack check " + str(err))
             raise
     else:
-        print "OpenStack plugin check already exists"
+        print ("OpenStack plugin check already exists")
     return plugin_check_id
 
 
-def create_filesystem_check():
+def create_filesystem_check(fs):
     check_type = "agent.filesystem"
     if check_type not in checks:
-        target = "/"
+        target = fs
         try:
             fs_check_id = cm.create_check(args.entity, {
                 "label": "Filesystem",
@@ -209,15 +210,15 @@ def create_filesystem_check():
                     "target": target
                 }
             })
-            print "Filesystem check created"
+            print ("Filesystem check created")
 
-        except:
+        except Exception as err:
             write_rba(
                 "Status",
-                "Request Failed: Couldn't create filesystem check.")
+                "Request Failed: Couldn't create filesystem check." + str(err))
             raise
     else:
-        print "Filesystem check already exists"
+        print ("Filesystem check already exists")
     return fs_check_id
 
 
@@ -231,15 +232,15 @@ def create_la_check():
                 "timeout": args.timeout,
                 "period": args.period
             })
-            print "Load average check created"
+            print ("Load average check created")
 
-        except:
+        except Exception as err:
             write_rba(
                 "Status",
-                "Request Failed: Couldn't create load check.")
+                "Request Failed: Couldn't create load check." + str(err))
             raise
     else:
-        print "Load check already exists"
+        print ("Load check already exists")
     return la_check_id
 
 
@@ -253,11 +254,11 @@ def create_cpu_check():
                 "timeout": args.timeout,
                 "period": args.period
             })
-            print "CPU check created"
-        except:
+            print ("CPU check created")
+        except Exception as err:
             write_rba(
                 "Status",
-                "Request Failed: Couldn't create CPU check")
+                "Request Failed: Couldn't create CPU check" + str(err))
             raise
     else:
         "CPU check already exists"
@@ -274,14 +275,14 @@ def create_memory_check():
                 "timeout": args.timeout,
                 "period": args.period
             })
-            print "Memory check created"
-        except:
+            print ("Memory check created")
+        except Exception as err:
             write_rba(
                 "Status",
-                "Request Failed: Couldn't create memory check.")
+                "Request Failed: Couldn't create memory check." + str(err))
             raise
     else:
-        print "Memory check already exists"
+        print ("Memory check already exists")
     return mem_check_id
 
 
@@ -385,12 +386,17 @@ if __name__ == "__main__":
 
     try:
         checks = cm.get_configured_check_types(args.entity)
-    except:
-        write_rba("Status", "Request Failed: Couldn't view existing checks.")
+    except Exception as err:
+        write_rba("Status",
+                  "Request Failed: Couldn't view existing checks." + str(err))
         raise
 
     create_plugin_check()
-    create_filesystem_check()
+    mounts = open("/proc/mounts", "rb")
+    for mount in mounts:
+        line = mount.split(" ")
+        if line[2] == "xfs":
+            create_filesystem_check(line[1])
     create_la_check()
     create_cpu_check()
     create_memory_check()
@@ -403,10 +409,10 @@ if __name__ == "__main__":
             test_check = cm.get_check_by_type(
                 "agent.memory",
                 args.entity)['id']
-        except:
+        except Exception as err:
             write_rba(
                 "Status",
-                "Request Failed: Couldn't retrieve memory check.")
+                "Request Failed: Couldn't retrieve memory check." + str(err))
             raise
 
     fileInfo = "monitoring_token " + agent_token + "\n"
