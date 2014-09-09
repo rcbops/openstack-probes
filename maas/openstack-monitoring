@@ -13,11 +13,11 @@
 #GNU General Public License for more details.
 #
 
-my $os_username="admin";
-my $os_password="3FR37Vpo2ykUv9fVhPXS7BnZ";
-my $os_tenant="admin";
-my $os_auth_url="http://192.168.6.2:5000/v2.0";
-my $network_type="neutron";
+my $os_username="";
+my $os_password="";
+my $os_tenant="";
+my $os_auth_url="";
+my $network_type="";
 my $admin_token;
 my $bind_host;
 my $public_port;
@@ -44,7 +44,7 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.29';
+my $version = '0.30';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
@@ -134,7 +134,7 @@ sub checkMetadata {
 sub checkMaria {
     my @data;
     if ( -e '/etc/init.d/mysql' ) {
-        @data = `/usr/bin/time -f "%e" /usr/bin/mysql -h $host -e "show slave status\\G" 2>&1`;
+        @data = `/usr/bin/time -f "%e" /usr/bin/mysql -u $mariaUser -p$mariaPass -h $host -e "show slave status\\G" 2>&1`;
         if ($? != 0 || !@data) { push(@metrics, "metric Mysql double -1\n"); return; } else { push(@metrics, "metric Mysql double $data[-1]"); }
         my $queues_list = {};
         foreach my $line (@data) {

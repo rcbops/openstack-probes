@@ -40,8 +40,16 @@ def main():
     parser.add_argument("token", action="store",
                         help="Token Normally generated from cloud-token")
     parser.add_argument(
-        "-e", "--entity", action="store", dest="entity",
-        help="Entity ID attached to core device.")
+        "-f", "--fstype", action="store", dest="fs",
+        help="Filesystem type for filesystem checks. Default ext4",
+        default="ext4")
+    parser.add_argument(
+        "-a", "--agent", action="store_false", dest="agent",
+        default=True,
+        help="Create agent config file. Default true")
+    parser.add_argument(
+        "-l", "--list", action="store_true", dest="lst",
+        help="List defined checks.")
     parser.add_argument(
         "-p", "--poll_period", action="store", dest="period",
         default=300, help="Polling interval in seconds")
@@ -55,7 +63,7 @@ def main():
         cloudM = CloudMonitoring(options.account, options.token)
         entities = cloudM.get_entities()
     except Exception as err:
-        write_rba("Status", "Request Failed: "+str(err))
+        print ("Request Failed: "+str(err))
         raise
 
     for i in entities['values']:
@@ -75,8 +83,6 @@ def request(url, auth_token=None, data=None):
         headers['X-Auth-Token'] = auth_token
     if data:
         data = json.dumps(data)
-
-    print (url)
     req = urllib2.Request(url, data, headers)
     res = urllib2.build_opener(RestHTTPErrorProcessor).open(req)
     if res.code == 200:
@@ -106,12 +112,6 @@ def put_request(url, auth_token=None, data=None):
         return res.headers['Location'].rsplit("/")[-1]
 
 
-def write_rba(name, desc):
-    print ("RBA START", name)
-    print (desc)
-    print ("RBA END", name)
-
-
 def link_agent_to_entity(cm, entity, account, device):
     agent_id = None
     try:
@@ -127,7 +127,7 @@ def link_agent_to_entity(cm, entity, account, device):
             # Associate the agent id with the entity.
             cm.set_agent_id(entity, {"agent_id": agent_id})
         except Exception as err:
-            write_rba("Status", "Couldn't create new agent id." + str(err))
+            print ("Couldn't create new agent id." + str(err))
             raise
 
     return agent_id
@@ -157,8 +157,7 @@ def get_agent_token(cm, agent_id):
             # Create the agent token.
             agent_token = cm.create_token({"label": agent_id})
         except Exception as err:
-            write_rba("Status",
-                      "Request Failed: Couldn't create agent id." + str(err))
+            print ("Request Failed: Couldn't create agent id." + str(err))
             raise
 
     return agent_token
@@ -166,123 +165,280 @@ def get_agent_token(cm, agent_id):
 
 def create_plugin_check():
     check_type = "agent.plugin"
-    if check_type not in checks:
-        try:
-            plugin_check_id = cm.create_check(args.entity, {
-                "label": "OpenStack",
-                "type": check_type,
-                "timeout": args.timeout,
-                "period": args.period,
-                "details": {"file": "openstack-monitoring"}
-            })
-            installDir = '/usr/lib/rackspace-monitoring-agent/plugins'
-            if not os.path.isdir(installDir):
-                os.makedirs(installDir)
-            dlfile()
-            param = "/usr/lib/rackspace-monitoring-agent/plugins/"
-            param += "openstack-deploy"
-            workingDir = "/usr/lib/rackspace-monitoring-agent/plugins"
-            p = subprocess.Popen(["/bin/bash", param], cwd=workingDir)
-            p.wait()
+    try:
+        plugin_check_id = cm.create_check(args.entity, {
+            "label": "OpenStack",
+            "type": check_type,
+            "timeout": args.timeout,
+            "period": args.period,
+            "details": {"file": "openstack-monitoring"}
+        })
+        installDir = '/usr/lib/rackspace-monitoring-agent/plugins'
+        if not os.path.isdir(installDir):
+            os.makedirs(installDir)
+        dlfile()
+        param = ("/usr/lib/rackspace-monitoring-agent/plugins/"
+                 "openstack-deploy")
+        workingDir = "/usr/lib/rackspace-monitoring-agent/plugins"
+        p = subprocess.Popen(["/bin/bash", param], cwd=workingDir)
+        p.wait()
 
-            print ("OpenStack plugin check created")
-        except Exception as err:
-            write_rba(
-                "Status",
-                "Request Failed: Couldn't create OpenStack check " + str(err))
-            raise
-    else:
-        print ("OpenStack plugin check already exists")
+        print ("OpenStack plugin check created")
+    except Exception as err:
+        print ("Request Failed: Couldn't create OpenStack check " + str(err))
+        raise
+    mysql = (":set consistencyLevel=ALL\n"
+             ":set consecutiveCount=3\n"
+             "if (metric['Mysql'] != -1) {\n"
+             "    return new AlarmStatus(OK, 'Mysql is "
+             "responding correctly');\n"
+             "}\n"
+             "return new AlarmStatus(CRITICAL, 'Mysql is not "
+             "responding correctly');\n")
+    neutron = (":set consistencyLevel=ALL\n"
+               ":set consecutiveCount=3\n"
+               "if (metric['Neutron'] != -1) {\n"
+               "    return new AlarmStatus(OK, 'Neutron agents are "
+               "responding correctly');\n"
+               "}\n"
+               "return new AlarmStatus(CRITICAL, 'A neutron agent is not "
+               "responding correctly');\n")
+    rabbit = (":set consistencyLevel=ALL\n"
+              ":set consecutiveCount=3\n"
+              "if (metric['Rabbit'] != -1) {\n"
+              "    return new AlarmStatus(OK, 'RabbitMQ is "
+              "responding correctly');\n"
+              "}\n"
+              "return new AlarmStatus(CRITICAL, 'RabbitMQ is not "
+              "responding correctly');\n")
+    memcached = (":set consistencyLevel=ALL\n"
+                 ":set consecutiveCount=3\n"
+                 "if (metric['MemCached'] != -1) {\n"
+                 "    return new AlarmStatus(OK, 'MemCached is "
+                 "responding correctly');\n"
+                 "}\n"
+                 "return new AlarmStatus(CRITICAL, 'MemCached is not "
+                 "responding correctly');\n")
+    glanceregistry = (":set consistencyLevel=ALL\n"
+                      ":set consecutiveCount=3\n"
+                      "if (metric['Glance-Registry'] != -1) {\n"
+                      "    return new AlarmStatus(OK, 'Glance-Registry is "
+                      "responding correctly');\n"
+                      "}\n"
+                      "return new AlarmStatus(CRITICAL, 'Glance-Registry is "
+                      "not responding correctly');\n")
+    glanceapi = (":set consistencyLevel=ALL\n"
+                 ":set consecutiveCount=3\n"
+                 "if (metric['Glance-Api'] != -1) {\n"
+                 "    return new AlarmStatus(OK, 'Glance-Api is "
+                 "responding correctly');\n"
+                 "}\n"
+                 "return new AlarmStatus(CRITICAL, 'Glance-Api is not "
+                 "responding correctly');\n")
+    neutronserver = (":set consistencyLevel=ALL\n"
+                     ":set consecutiveCount=3\n"
+                     "if (metric['NeutronServer'] != -1) {\n"
+                     "    return new AlarmStatus(OK, 'NeutronServer is "
+                     "responding correctly');\n"
+                     "}\n"
+                     "return new AlarmStatus(CRITICAL, 'NeutronServer is not "
+                     "responding correctly');\n")
+    horizon = (":set consistencyLevel=ALL\n"
+               ":set consecutiveCount=3\n"
+               "if (metric['Horizon'] != -1) {\n"
+               "    return new AlarmStatus(OK, 'Horizon is "
+               "responding correctly');\n"
+               "}\n"
+               "return new AlarmStatus(CRITICAL, 'Horizon is not "
+               "responding correctly');\n")
+    novncproxy = (":set consistencyLevel=ALL\n"
+                  ":set consecutiveCount=3\n"
+                  "if (metric['NoVncProxy'] != -1) {\n"
+                  "    return new AlarmStatus(OK, 'NoVncProxy is "
+                  "responding correctly');\n"
+                  "}\n"
+                  "return new AlarmStatus(CRITICAL, 'NoVncProxy is not "
+                  "responding correctly');\n")
+    kvm = (":set consistencyLevel=ALL\n"
+           ":set consecutiveCount=3\n"
+           "if (metric['Kvm'] != -1) {\n"
+           "    return new AlarmStatus(OK, 'Kvm is "
+           "responding correctly');\n"
+           "}\n"
+           "return new AlarmStatus(CRITICAL, 'Kvm is not "
+           "responding correctly');\n")
+    ovsswitchd = (":set consistencyLevel=ALL\n"
+                  ":set consecutiveCount=3\n"
+                  "if (metric['OvsSwitchd'] != -1) {\n"
+                  "    return new AlarmStatus(OK, 'OvsSwitchd is "
+                  "responding correctly');\n"
+                  "}\n"
+                  "return new AlarmStatus(CRITICAL, 'OvsSwitchd is not "
+                  "responding correctly');\n")
+    ovsdb = (":set consistencyLevel=ALL\n"
+             ":set consecutiveCount=3\n"
+             "if (metric['OvsDB'] != -1) {\n"
+             "    return new AlarmStatus(OK, 'OvsDB is accessible');\n"
+             "}\n"
+             "return new AlarmStatus(CRITICAL, 'OvsDB is not accessible');\n")
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Mysql",
+        "criteria": mysql
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "OvsDB",
+        "criteria": ovsdb
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Rabbit",
+        "criteria": rabbit
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Neutron",
+        "criteria": neutron
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Memcached",
+        "criteria": memcached
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Glance-Registry",
+        "criteria": glanceregistry
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Glance-Api",
+        "criteria": glanceapi
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Neutron-Server",
+        "criteria": neutronserver
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Horizon",
+        "criteria": horizon
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "NoVncProxy",
+        "criteria": novncproxy
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Kvm",
+        "criteria": kvm
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "OvsSwitchd",
+        "criteria": ovsswitchd
+    })
+
     return plugin_check_id
 
 
 def create_filesystem_check(fs):
     check_type = "agent.filesystem"
-    if check_type not in checks:
-        target = fs
-        try:
-            fs_check_id = cm.create_check(args.entity, {
-                "label": "Filesystem",
-                "type": check_type,
-                "timeout": args.timeout,
-                "period": args.period,
-                "details": {
-                    "target": target
-                }
-            })
-            print ("Filesystem check created")
-
-        except Exception as err:
-            write_rba(
-                "Status",
-                "Request Failed: Couldn't create filesystem check." + str(err))
-            raise
-    else:
-        print ("Filesystem check already exists")
+    target = fs
+    try:
+        fs_check_id = cm.create_check(args.entity, {
+            "label": "Filesystem",
+            "type": check_type,
+            "timeout": args.timeout,
+            "period": args.period,
+            "details": {
+                "target": target
+            }
+        })
+        fscheck = (":set consistencyLevel=ALL\n"
+                   ":set consecutiveCount=3\n"
+                   "if (percentage(metric['used'], metric['total']) > 90) {\n"
+                   "    return new AlarmStatus(CRITICAL, "
+                   "'Less than 10% free space left.');\n"
+                   "}\n"
+                   "if (percentage(metric['used'], metric['total']) > 80) {\n"
+                   "    return new AlarmStatus(WARNING, "
+                   "'Less than 20% free space left.');\n"
+                   "}\n")
+        cm.create_alarm(args.entity, {
+            "check_id": fs_check_id,
+            "notification_plan_id": 'npManaged',
+            "label": "fscheck",
+            "criteria": fscheck
+        })
+        print ("Filesystem check created")
+    except Exception as err:
+        print ("Request Failed: Couldn't create filesystem check." + str(err))
+        raise
     return fs_check_id
 
 
 def create_la_check():
     check_type = "agent.load_average"
-    if check_type not in checks:
-        try:
-            la_check_id = cm.create_check(args.entity, {
-                "label": "Load Average",
-                "type": check_type,
-                "timeout": args.timeout,
-                "period": args.period
-            })
-            print ("Load average check created")
+    try:
+        la_check_id = cm.create_check(args.entity, {
+            "label": "Load Average",
+            "type": check_type,
+            "timeout": args.timeout,
+            "period": args.period
+        })
+        print ("Load average check created")
 
-        except Exception as err:
-            write_rba(
-                "Status",
-                "Request Failed: Couldn't create load check." + str(err))
-            raise
-    else:
-        print ("Load check already exists")
+    except Exception as err:
+        print ("Request Failed: Couldn't create load check." + str(err))
+        raise
     return la_check_id
 
 
 def create_cpu_check():
     check_type = "agent.cpu"
-    if check_type not in checks:
-        try:
-            cpu_check_id = cm.create_check(args.entity, {
-                "label": "CPU",
-                "type": check_type,
-                "timeout": args.timeout,
-                "period": args.period
-            })
-            print ("CPU check created")
-        except Exception as err:
-            write_rba(
-                "Status",
-                "Request Failed: Couldn't create CPU check" + str(err))
-            raise
-    else:
-        "CPU check already exists"
+    try:
+        cpu_check_id = cm.create_check(args.entity, {
+            "label": "CPU",
+            "type": check_type,
+            "timeout": args.timeout,
+            "period": args.period
+        })
+        print ("CPU check created")
+    except Exception as err:
+        print ("Request Failed: Couldn't create CPU check" + str(err))
+        raise
     return cpu_check_id
 
 
 def create_memory_check():
     check_type = "agent.memory"
-    if check_type not in checks:
-        try:
-            mem_check_id = cm.create_check(args.entity, {
-                "label": "Memory",
-                "type": check_type,
-                "timeout": args.timeout,
-                "period": args.period
-            })
-            print ("Memory check created")
-        except Exception as err:
-            write_rba(
-                "Status",
-                "Request Failed: Couldn't create memory check." + str(err))
-            raise
-    else:
-        print ("Memory check already exists")
+    try:
+        mem_check_id = cm.create_check(args.entity, {
+            "label": "Memory",
+            "type": check_type,
+            "timeout": args.timeout,
+            "period": args.period
+        })
+        print ("Memory check created")
+    except Exception as err:
+        print ("Request Failed: Couldn't create memory check." + str(err))
+        raise
     return mem_check_id
 
 
@@ -290,9 +446,14 @@ class CloudMonitoring:
 
     def __init__(self, account_number, token):
         self.token = token
-        self.base_url = "https://monitoring.api.rackspacecloud.com"
-        self.base_url += "/v1.0/hybrid:"
-        self.base_url += account_number
+        self.base_url = ("https://monitoring.api.rackspacecloud.com"
+                         "/v1.0/hybrid:%s" % account_number)
+        self.headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Auth-Token": self.token
+        }
+        self.notification_plan = 'npManaged'
 
     def __request(self, path, data=None):
         return request(self.base_url + path, self.token, data)
@@ -308,6 +469,9 @@ class CloudMonitoring:
             items += result["values"]
             next_href = result["metadata"]["next_href"]
         return items
+
+    def get_alarms(self):
+        return self.request("/entities/%s/alarms" % self.entity)
 
     def set_agent_id(self, entity_id, data):
         return self.__putrequest("/entities/%s" % entity_id, data)
@@ -330,7 +494,7 @@ class CloudMonitoring:
         return self.__request("/entities/%s/checks" % entity_id, data)
 
     def create_alarm(self, entity_id, data):
-        return self.__request("/entities/%s/checks" % entity_id, data)
+        return self.__request("/entities/%s/alarms" % entity_id, data)
 
     def get_alarm_template(self, template_name):
         return self.__request("/alarm_examples/%s" % template_name)
@@ -365,37 +529,36 @@ if __name__ == "__main__":
 
     args = main()
 
-    test_check = None
-
-    # Verify parameters are input.
     if not args.account or not args.device or not args.token:
-        write_rba("Status", "Failed: Missing input parameters. Try --help")
+        print ("Failed: Missing input parameters. Try --help")
         sys.exit(1)
 
-    # Verify all parameters have a value.
     for x in (args.account, args.device, args.entity, args.token):
         if x[0] == '-':
-            write_rba("Status", "Failed: Missing input parameters. Try --help")
+            print ("Failed: Missing input parameters. Try --help")
             sys.exit(1)
 
     try:
         cm = CloudMonitoring(args.account, args.token)
     except Exception as err:
-        write_rba("Status", "Request Failed: "+str(err))
+        print ("Request Failed: "+str(err))
         raise
 
     try:
         checks = cm.get_configured_check_types(args.entity)
     except Exception as err:
-        write_rba("Status",
-                  "Request Failed: Couldn't view existing checks." + str(err))
+        print ("Request Failed: Couldn't view existing checks." + str(err))
         raise
 
+    if args.lst:
+        for check in checks:
+            print (check)
+        exit(0)
     create_plugin_check()
     mounts = open("/proc/mounts", "rb")
     for mount in mounts:
         line = mount.split(" ")
-        if line[2] == "xfs":
+        if line[2] == args.fs:
             create_filesystem_check(line[1])
     create_la_check()
     create_cpu_check()
@@ -403,22 +566,10 @@ if __name__ == "__main__":
 
     agent_id = link_agent_to_entity(cm, args.entity, args.account, args.device)
     agent_token = get_agent_token(cm, agent_id)
-    # Test check will be used in other process to verify functionality.
-    if not test_check:
-        try:
-            test_check = cm.get_check_by_type(
-                "agent.memory",
-                args.entity)['id']
-        except Exception as err:
-            write_rba(
-                "Status",
-                "Request Failed: Couldn't retrieve memory check." + str(err))
-            raise
 
-    fileInfo = "monitoring_token " + agent_token + "\n"
-    fileInfo += "monitoring_id " + agent_id + "\n"
-    with open("/etc/rackspace-monitoring-agent.cfg", "wb") as local_file1:
-        local_file1.write(fileInfo)
-    local_file1.close()
-    write_rba("TestCheck", test_check)
-    write_rba("Status", "Success")
+    if args.agent:
+        fileInfo = ("monitoring_token " + agent_token + "\n"
+                    "monitoring_id " + agent_id + "\n")
+        with open("/etc/rackspace-monitoring-agent.cfg", "wb") as local_file1:
+            local_file1.write(fileInfo)
+        local_file1.close()
