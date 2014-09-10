@@ -44,7 +44,7 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.30';
+my $version = '0.31';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
@@ -192,7 +192,7 @@ sub checkNova {
                 $service_list->{$values[0]} = $values[4];
             }
         }
-        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { push(@metrics, "metric $key string Down\n"); } }
+        while ( my ($key, $value) = each(%$service_list) ) { if ( $value eq 'XXX' ) { push(@metrics, "metric $key string Down\n"); } else { push(@metrics, "metric $key string Up\n"); } }
     }
 }
 
@@ -326,7 +326,7 @@ sub checkNeutron {
             for my $i (@service_list) {
                 while ( my ($key, $value) = each %{$i} ) {
                     if ( $key =~ m/DHCP/){ checkMetadata() };
-                    if ( $value eq 'XXX' || $value eq 'xxx' ) { push(@metrics, "metric $key string Down"); }
+                    if ( $value eq 'XXX' || $value eq 'xxx' ) { push(@metrics, "metric $key string Down\n"); } else { push(@metrics, "metric $key string Up\n"); }
                 }
             }
         }

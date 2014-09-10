@@ -1,6 +1,0 @@
-:set consistencyLevel=ALL 
-:set consecutiveCount=1
-if (percentage(metric['CinderVGUsed'], metric['CinderVGSize']) > 90) {
-    return new AlarmStatus(CRITICAL, 'Less than 10% free space left.');
-    }
-    return new AlarmStatus(OK);

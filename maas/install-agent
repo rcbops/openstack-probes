@@ -171,7 +171,8 @@ def create_plugin_check():
             "type": check_type,
             "timeout": args.timeout,
             "period": args.period,
-            "details": {"file": "openstack-monitoring"}
+            "details": {"file": "openstack-monitoring"},
+            "metadata": {"event-type-override": "Openstack/Monitoring"}
         })
         installDir = '/usr/lib/rackspace-monitoring-agent/plugins'
         if not os.path.isdir(installDir):
@@ -187,6 +188,30 @@ def create_plugin_check():
     except Exception as err:
         print ("Request Failed: Couldn't create OpenStack check " + str(err))
         raise
+    sync = (":set consistencyLevel=ALL\n"
+            ":set consecutiveCount=3\n"
+            "if (metric['Seconds_Behind_Master'] != 'NULL') {\n"
+            "    return new AlarmStatus(OK, 'Mysql replication "
+            "is working correctly');\n"
+            "}\n"
+            "return new AlarmStatus(CRITICAL, 'Mysql sync has stopped "
+            "');\n")
+    slavesql = (":set consistencyLevel=ALL\n"
+                ":set consecutiveCount=3\n"
+                "if (metric['Slave_SQL_Running'] == 'Yes') {\n"
+                "    return new AlarmStatus(OK, 'Mysql replication "
+                "is working correctly');\n"
+                "}\n"
+                "return new AlarmStatus(CRITICAL, 'Mysql Slave_SQL "
+                "has stopped');\n")
+    slaveio = (":set consistencyLevel=ALL\n"
+               ":set consecutiveCount=3\n"
+               "if (metric['Slave_IO_Running'] == 'Yes') {\n"
+               "    return new AlarmStatus(OK, 'Mysql replication "
+               "is working correctly');\n"
+               "}\n"
+               "return new AlarmStatus(CRITICAL, 'Mysql Slave_IO "
+               "has stopped');\n")
     mysql = (":set consistencyLevel=ALL\n"
              ":set consecutiveCount=3\n"
              "if (metric['Mysql'] != -1) {\n"
@@ -195,14 +220,53 @@ def create_plugin_check():
              "}\n"
              "return new AlarmStatus(CRITICAL, 'Mysql is not "
              "responding correctly');\n")
+    nova = (":set consistencyLevel=ALL\n"
+            ":set consecutiveCount=3\n"
+            "if (metric['Nova'] == -1) {\n"
+            "    return new AlarmStatus(CRITICAL, 'The Nova API is not "
+            "responding correctly');\n"
+            "}\n"
+            "if (metric['nova-scheduler'] == 'Down' {\n"
+            "    return new AlarmStatus(CRITICAL, 'Nova Scheduler is not "
+            "responding correctly');\n"
+            "}\n"
+            "if (metric['nova-conductor'] == 'Down' {\n"
+            "    return new AlarmStatus(CRITICAL, 'Nova Conductor is not "
+            "responding correctly');\n"
+            "}\n"
+            "if (metric['nova-cert'] == 'Down' {\n"
+            "    return new AlarmStatus(CRITICAL, 'Nova Cert is not "
+            "responding correctly');\n"
+            "}\n"
+            "if (metric['nova-consoleauth'] == 'Down' {\n"
+            "    return new AlarmStatus(CRITICAL, 'Nova Consoleauth is not "
+            "responding correctly');\n"
+            "}\n"
+            "if (metric['nova-compute'] == 'Down' {\n"
+            "    return new AlarmStatus(CRITICAL, 'Nova Compute is not "
+            "responding correctly');\n"
+            "}\n"
+            "return new AlarmStatus(OK, 'All Nova services are "
+            "responding correctly');\n")
+
+
+
     neutron = (":set consistencyLevel=ALL\n"
                ":set consecutiveCount=3\n"
-               "if (metric['Neutron'] != -1) {\n"
-               "    return new AlarmStatus(OK, 'Neutron agents are "
+               "if (metric['Neutron'] == -1) {\n"
+               "    return new AlarmStatus(CRITICAL, 'The neutron API is not "
                "responding correctly');\n"
                "}\n"
-               "return new AlarmStatus(CRITICAL, 'A neutron agent is not "
+               "if (metric['Neutron'] == -1) {\n"
+               "    return new AlarmStatus(CRITICAL, 'The neutron API is not "
+               "responding correctly');\n"
+               "}\n"
+               "return new AlarmStatus(OK, 'Neutron API is "
                "responding correctly');\n")
+
+
+
+
     rabbit = (":set consistencyLevel=ALL\n"
               ":set consecutiveCount=3\n"
               "if (metric['Rabbit'] != -1) {\n"
@@ -281,6 +345,42 @@ def create_plugin_check():
              "    return new AlarmStatus(OK, 'OvsDB is accessible');\n"
              "}\n"
              "return new AlarmStatus(CRITICAL, 'OvsDB is not accessible');\n")
+    cicheck = (":set consistencyLevel=ALL\n"
+               ":set consecutiveCount=3\n"
+               "if (percentage(metric['CinderVGUsed'], "
+               "metric['CinderVGSize']) > 98) {\n"
+               "    return new AlarmStatus(CRITICAL, "
+               "'Less than 2% free space left.');\n"
+               "}\n"
+               "if (percentage(metric['CinderVGUsed'], "
+               "metric['CinderVGSize']) > 95) {\n"
+               "    return new AlarmStatus(WARNING, "
+               "'Less than 5% free space left.');\n"
+               "}\n")
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "cindercheck",
+        "criteria": cicheck
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Sync",
+        "criteria": sync
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "SlaveIO",
+        "criteria": slaveio
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "SlaveSql",
+        "criteria": slavesql
+    })
     cm.create_alarm(args.entity, {
         "check_id": plugin_check_id,
         "notification_plan_id": 'npManaged',
@@ -298,6 +398,12 @@ def create_plugin_check():
         "notification_plan_id": 'npManaged',
         "label": "Rabbit",
         "criteria": rabbit
+    })
+    cm.create_alarm(args.entity, {
+        "check_id": plugin_check_id,
+        "notification_plan_id": 'npManaged',
+        "label": "Nova",
+        "criteria": nova
     })
     cm.create_alarm(args.entity, {
         "check_id": plugin_check_id,
@@ -372,13 +478,13 @@ def create_filesystem_check(fs):
         })
         fscheck = (":set consistencyLevel=ALL\n"
                    ":set consecutiveCount=3\n"
-                   "if (percentage(metric['used'], metric['total']) > 90) {\n"
+                   "if (percentage(metric['used'], metric['total']) > 98) {\n"
                    "    return new AlarmStatus(CRITICAL, "
-                   "'Less than 10% free space left.');\n"
+                   "'Less than 2% free space left.');\n"
                    "}\n"
-                   "if (percentage(metric['used'], metric['total']) > 80) {\n"
+                   "if (percentage(metric['used'], metric['total']) > 95) {\n"
                    "    return new AlarmStatus(WARNING, "
-                   "'Less than 20% free space left.');\n"
+                   "'Less than 5% free space left.');\n"
                    "}\n")
         cm.create_alarm(args.entity, {
             "check_id": fs_check_id,
@@ -402,6 +508,20 @@ def create_la_check():
             "timeout": args.timeout,
             "period": args.period
         })
+        lacheck = (":set consistencyLevel=ALL\n"
+                   ":set consecutiveCount=3\n"
+                   "if (metric['5m'] > 96) {\n"
+                   "    return new AlarmStatus(CRITICAL, "
+                   "'Load average has been > 96 for 5 minutes.');\n"
+                   "}\n"
+                   "return new AlarmStatus(OK, "
+                   "'Load Average is under set limits.');\n")
+        cm.create_alarm(args.entity, {
+            "check_id": la_check_id,
+            "notification_plan_id": 'npManaged',
+            "label": "lacheck",
+            "criteria": lacheck
+        })
         print ("Load average check created")
 
     except Exception as err:
@@ -419,6 +539,20 @@ def create_cpu_check():
             "timeout": args.timeout,
             "period": args.period
         })
+        cpucheck = (":set consistencyLevel=ALL\n"
+                    ":set consecutiveCount=3\n"
+                    "if (metric['usage_average'] >= 95) {\n"
+                    "    return new AlarmStatus(CRITICAL, "
+                    "'Average CPU idle <= 5.');\n"
+                    "}\n"
+                    "return new AlarmStatus(OK, "
+                    "'Average CPU idle time is now acceptable.');\n")
+        cm.create_alarm(args.entity, {
+            "check_id": cpu_check_id,
+            "notification_plan_id": 'npManaged',
+            "label": "cpucheck",
+            "criteria": cpucheck
+        })
         print ("CPU check created")
     except Exception as err:
         print ("Request Failed: Couldn't create CPU check" + str(err))
@@ -434,6 +568,21 @@ def create_memory_check():
             "type": check_type,
             "timeout": args.timeout,
             "period": args.period
+        })
+        memcheck = (":set consistencyLevel=ALL\n"
+                    ":set consecutiveCount=3\n"
+                    "if (percentage(metric['actual_used'], \n"
+                    "metric['total']) >= 98) {\n"
+                    "    return new AlarmStatus(CRITICAL, "
+                    "'Memory usage exceeds 98');\n"
+                    "}\n"
+                    "return new AlarmStatus(OK, "
+                    "'Memory usage is within acceptable limits.');\n")
+        cm.create_alarm(args.entity, {
+            "check_id": mem_check_id,
+            "notification_plan_id": 'npManaged',
+            "label": "memcheck",
+            "criteria": memcheck
         })
         print ("Memory check created")
     except Exception as err:
