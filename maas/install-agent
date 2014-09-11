@@ -189,7 +189,7 @@ def create_plugin_check():
                              stdout=subprocess.PIPE)
         p.wait()
         metrics = p.stdout.read()
-        sync = (":set consistencyLevel=ALL\n"
+        sync = (":set consistencyLevel=QUORUM\n"
                 ":set consecutiveCount=3\n"
                 "if (metric['Seconds_Behind_Master'] != 'NULL') {\n"
                 "    return new AlarmStatus(OK, 'Mysql replication "
@@ -197,7 +197,7 @@ def create_plugin_check():
                 "}\n"
                 "return new AlarmStatus(CRITICAL, 'Mysql sync has stopped "
                 "');\n")
-        slavesql = (":set consistencyLevel=ALL\n"
+        slavesql = (":set consistencyLevel=QUORUM\n"
                     ":set consecutiveCount=3\n"
                     "if (metric['Slave_SQL_Running'] == 'Yes') {\n"
                     "    return new AlarmStatus(OK, 'Mysql replication "
@@ -205,7 +205,7 @@ def create_plugin_check():
                     "}\n"
                     "return new AlarmStatus(CRITICAL, 'Mysql Slave_SQL "
                     "has stopped');\n")
-        slaveio = (":set consistencyLevel=ALL\n"
+        slaveio = (":set consistencyLevel=QUORUM\n"
                    ":set consecutiveCount=3\n"
                    "if (metric['Slave_IO_Running'] == 'Yes') {\n"
                    "    return new AlarmStatus(OK, 'Mysql replication "
@@ -213,7 +213,7 @@ def create_plugin_check():
                    "}\n"
                    "return new AlarmStatus(CRITICAL, 'Mysql Slave_IO "
                    "has stopped');\n")
-        mysql = (":set consistencyLevel=ALL\n"
+        mysql = (":set consistencyLevel=QUORUM\n"
                  ":set consecutiveCount=3\n"
                  "if (metric['Mysql'] != -1) {\n"
                  "    return new AlarmStatus(OK, 'Mysql is "
@@ -221,7 +221,7 @@ def create_plugin_check():
                  "}\n"
                  "return new AlarmStatus(CRITICAL, 'Mysql is not "
                  "responding correctly');\n")
-        nova = (":set consistencyLevel=ALL\n"
+        nova = (":set consistencyLevel=QUORUM\n"
                 ":set consecutiveCount=3\n"
                 "if (metric['Nova'] == -1) {\n"
                 "    return new AlarmStatus(CRITICAL, 'The Nova API is not "
@@ -260,14 +260,14 @@ def create_plugin_check():
         if metrics.find('nova-compute') != -1:
             nova += nCom
         nova += nFin
-        metadata = (":set consistencyLevel=ALL\n"
+        metadata = (":set consistencyLevel=QUORUM\n"
                     ":set consecutiveCount=3\n"
                     "if (metric['metadata'] == -1) {\n"
                     "    return new AlarmStatus(CRITICAL, 'The neutron "
                     "metadata service is not responding correctly');\n"
                     "}\nreturn new AlarmStatus(OK, 'Neutron metadata "
                     "service is responding correctly');\n")
-        cinder = (":set consistencyLevel=ALL\n"
+        cinder = (":set consistencyLevel=QUORUM\n"
                   ":set consecutiveCount=3\n"
                   "if (metric['Cinder'] == -1) {\n"
                   "    return new AlarmStatus(CRITICAL, 'The cinder API "
@@ -288,7 +288,7 @@ def create_plugin_check():
         if metrics.find('cinder-volume') != -1:
             cinder += cVol
         cinder += cOk
-        neutron = (":set consistencyLevel=ALL\n"
+        neutron = (":set consistencyLevel=QUORUM\n"
                    ":set consecutiveCount=3\n"
                    "if (metric['Neutron'] == -1) {\n"
                    "    return new AlarmStatus(CRITICAL, 'The neutron API "
@@ -315,7 +315,7 @@ def create_plugin_check():
         if metrics.find('L3-agent') != -1:
             neutron += nL3
         neutron += nOk
-        rabbit = (":set consistencyLevel=ALL\n"
+        rabbit = (":set consistencyLevel=QUORUM\n"
                   ":set consecutiveCount=3\n"
                   "if (metric['Rabbit'] != -1) {\n"
                   "    return new AlarmStatus(OK, 'RabbitMQ is "
@@ -323,7 +323,7 @@ def create_plugin_check():
                   "}\n"
                   "return new AlarmStatus(CRITICAL, 'RabbitMQ is not "
                   "responding correctly');\n")
-        memcached = (":set consistencyLevel=ALL\n"
+        memcached = (":set consistencyLevel=QUORUM\n"
                      ":set consecutiveCount=3\n"
                      "if (metric['MemCached'] != -1) {\n"
                      "    return new AlarmStatus(OK, 'MemCached is "
@@ -331,7 +331,7 @@ def create_plugin_check():
                      "}\n"
                      "return new AlarmStatus(CRITICAL, 'MemCached is not "
                      "responding correctly');\n")
-        glanceregistry = (":set consistencyLevel=ALL\n"
+        glanceregistry = (":set consistencyLevel=QUORUM\n"
                           ":set consecutiveCount=3\n"
                           "if (metric['Glance-Registry'] != -1) {\n"
                           "    return new AlarmStatus(OK, 'Glance-Registry is "
@@ -339,7 +339,7 @@ def create_plugin_check():
                           "}\n"
                           "return new AlarmStatus(CRITICAL, 'Glance-Registry "
                           "is not responding correctly');\n")
-        glanceapi = (":set consistencyLevel=ALL\n"
+        glanceapi = (":set consistencyLevel=QUORUM\n"
                      ":set consecutiveCount=3\n"
                      "if (metric['Glance-Api'] != -1) {\n"
                      "    return new AlarmStatus(OK, 'Glance-Api is "
@@ -347,7 +347,7 @@ def create_plugin_check():
                      "}\n"
                      "return new AlarmStatus(CRITICAL, 'Glance-Api is not "
                      "responding correctly');\n")
-        neutronserver = (":set consistencyLevel=ALL\n"
+        neutronserver = (":set consistencyLevel=QUORUM\n"
                          ":set consecutiveCount=3\n"
                          "if (metric['NeutronServer'] != -1) {\n"
                          "    return new AlarmStatus(OK, 'NeutronServer is "
@@ -355,7 +355,7 @@ def create_plugin_check():
                          "}\n"
                          "return new AlarmStatus(CRITICAL, 'NeutronServer is "
                          "not responding correctly');\n")
-        horizon = (":set consistencyLevel=ALL\n"
+        horizon = (":set consistencyLevel=QUORUM\n"
                    ":set consecutiveCount=3\n"
                    "if (metric['Horizon'] != -1) {\n"
                    "    return new AlarmStatus(OK, 'Horizon is "
@@ -363,7 +363,7 @@ def create_plugin_check():
                    "}\n"
                    "return new AlarmStatus(CRITICAL, 'Horizon is not "
                    "responding correctly');\n")
-        novncproxy = (":set consistencyLevel=ALL\n"
+        novncproxy = (":set consistencyLevel=QUORUM\n"
                       ":set consecutiveCount=3\n"
                       "if (metric['NoVncProxy'] != -1) {\n"
                       "    return new AlarmStatus(OK, 'NoVncProxy is "
@@ -371,7 +371,7 @@ def create_plugin_check():
                       "}\n"
                       "return new AlarmStatus(CRITICAL, 'NoVncProxy is not "
                       "responding correctly');\n")
-        kvm = (":set consistencyLevel=ALL\n"
+        kvm = (":set consistencyLevel=QUORUM\n"
                ":set consecutiveCount=3\n"
                "if (metric['Kvm'] != -1) {\n"
                "    return new AlarmStatus(OK, 'Kvm is "
@@ -379,7 +379,7 @@ def create_plugin_check():
                "}\n"
                "return new AlarmStatus(CRITICAL, 'Kvm is not "
                "responding correctly');\n")
-        ovsswitchd = (":set consistencyLevel=ALL\n"
+        ovsswitchd = (":set consistencyLevel=QUORUM\n"
                       ":set consecutiveCount=3\n"
                       "if (metric['OvsSwitchd'] != -1) {\n"
                       "    return new AlarmStatus(OK, 'OvsSwitchd is "
@@ -387,14 +387,14 @@ def create_plugin_check():
                       "}\n"
                       "return new AlarmStatus(CRITICAL, 'OvsSwitchd is not "
                       "responding correctly');\n")
-        ovsdb = (":set consistencyLevel=ALL\n"
+        ovsdb = (":set consistencyLevel=QUORUM\n"
                  ":set consecutiveCount=3\n"
                  "if (metric['OvsDB'] != -1) {\n"
                  "    return new AlarmStatus(OK, 'OvsDB is accessible');\n"
                  "}\n"
                  "return new AlarmStatus(CRITICAL, 'OvsDB is not accessible');"
                  "\n")
-        cicheck = (":set consistencyLevel=ALL\n"
+        cicheck = (":set consistencyLevel=QUORUM\n"
                    ":set consecutiveCount=3\n"
                    "if (percentage(metric['CinderVGUsed'], "
                    "metric['CinderVGSize']) > 98) {\n"
@@ -559,7 +559,7 @@ def create_filesystem_check(fs):
                 "target": target
             }
         })
-        fscheck = (":set consistencyLevel=ALL\n"
+        fscheck = (":set consistencyLevel=QUORUM\n"
                    ":set consecutiveCount=3\n"
                    "if (percentage(metric['used'], metric['total']) > 98) {\n"
                    "    return new AlarmStatus(CRITICAL, "
@@ -591,7 +591,7 @@ def create_la_check():
             "timeout": args.timeout,
             "period": args.period
         })
-        lacheck = (":set consistencyLevel=ALL\n"
+        lacheck = (":set consistencyLevel=QUORUM\n"
                    ":set consecutiveCount=3\n"
                    "if (metric['5m'] > 96) {\n"
                    "    return new AlarmStatus(CRITICAL, "
@@ -622,7 +622,7 @@ def create_cpu_check():
             "timeout": args.timeout,
             "period": args.period
         })
-        cpucheck = (":set consistencyLevel=ALL\n"
+        cpucheck = (":set consistencyLevel=QUORUM\n"
                     ":set consecutiveCount=3\n"
                     "if (metric['usage_average'] >= 95) {\n"
                     "    return new AlarmStatus(CRITICAL, "
@@ -652,7 +652,7 @@ def create_memory_check():
             "timeout": args.timeout,
             "period": args.period
         })
-        memcheck = (":set consistencyLevel=ALL\n"
+        memcheck = (":set consistencyLevel=QUORUM\n"
                     ":set consecutiveCount=3\n"
                     "if (percentage(metric['actual_used'], \n"
                     "metric['total']) >= 98) {\n"
