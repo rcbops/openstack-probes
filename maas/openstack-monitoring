@@ -13,11 +13,11 @@
 #GNU General Public License for more details.
 #
 
-my $os_username="";
-my $os_password="";
-my $os_tenant="";
-my $os_auth_url="";
-my $network_type="";
+my $os_username;
+my $os_password;
+my $os_tenant;
+my $os_auth_url;
+my $network_type;
 my $admin_token;
 my $bind_host;
 my $public_port;
@@ -44,7 +44,7 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.32';
+my $version = '0.34';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
@@ -109,13 +109,15 @@ sub checkMetadata {
     }
     my @dnsmasq = `/usr/bin/killall -s 1 dnsmasq 2>/dev/null`;
     my $thatsBad = 0;
+    # -2 means no networks yet, but we need the place holder for MAAS
+    if (scalar @logicalAnd == 0) { push(@metrics, "metric metadata double -2\n");}
     foreach my $value (@logicalAnd) {
         $value =~ s/^\s*(.*?)\s*$/$1/;
         my @response = `/usr/bin/time -f "%e" ip netns exec qdhcp-$value curl -f -s 169.254.169.254 2>&1`;
         if ( $? ne "5632" ) { 
-            push(@metrics, "metric metadata:$value double -1\n");
+            push(@metrics, "metric metadata double -1\n");
             $thatsBad = 1;
-        } else { push(@metrics, "metric metadata:$value double $response[-1]"); } 
+        } else { push(@metrics, "metric metadata double $response[-1]"); } 
     }
     if ($thatsBad == 1){
         my @try = `pkill dnsmasq`;
@@ -164,18 +166,18 @@ sub checkRabbit {
     if ( -e '/etc/init.d/rabbitmq-server' ) {
         @data = `/usr/bin/time -f "%e" /usr/sbin/rabbitmqctl list_queues 2>&1`;
         if ($? != 0 || !@data) { push(@metrics, "metric Rabbit double -1\n"); return; }
-        my $queues_list = {};
         push(@metrics, "metric Rabbit double $data[-1]");
-        foreach my $line (@data) {
-            my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
-            next if (!defined($key) || !defined($value));
-            $queues_list->{$key} = $value;
-        }
-        while ( my ($key, $value) = each(%$queues_list) ) {
-            if ($value > 0){
-                push(@metrics, "metric RabbitQ:$key int32 $value"); 
-            }
-        }
+        #my $queues_list = {};
+        #foreach my $line (@data) {
+        #my ($key, $value) = $line =~ /(?:^|\s+)(\S+)\s*\t\s*("[^"]*"|\S*)/;
+        #next if (!defined($key) || !defined($value));
+        #$queues_list->{$key} = $value;
+        #}
+        #while ( my ($key, $value) = each(%$queues_list) ) {
+        #if ($value > 0){
+        #push(@metrics, "metric RabbitQ:$key int32 $value"); 
+        #}
+        #}
     } 
 }
 
@@ -350,18 +352,22 @@ sub checkCinder {
     }
     if ($? != 0 || !@data) {
         if ( $localApi == 1 ){
-            if ($? ne "5632"){ push(@metrics, "metric Cinder double -1\n"); } else { push(@metrics, "metric Cinder double $data[-1]"); }
+            if ($? ne "5632"){ push(@metrics, "metric Cinder double -1\n"); }
         }
     } else {
+	my @t = split('>',$data[-1]);
+        if ( $localApi == 1 ){ push(@metrics, "metric Cinder double $t[-1]");}
         my $last = pop @data;
         my @values = split('>',$last);
         shift @values;
         pop @values;
         foreach (@values){
             my @line = split(' ',$_);
+            my @service = split('=',$line[2]);
+            $service[1] =~ s/\"//g;
             chop($line[5]);
             if ($line[5] =~ $host){
-                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ push(@metrics, "metric $line[2] string Down"); }
+                if ($line[1] =~ "enabled" && $line[4] =~ "down"){ push(@metrics, "metric $service[1] string Down\n"); } else { push(@metrics, "metric $service[1] string Up\n"); }
             }
         }
     }
