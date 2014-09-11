@@ -406,120 +406,139 @@ def create_plugin_check():
                    "    return new AlarmStatus(WARNING, "
                    "'Less than 5% free space left.');\n"
                    "}\n")
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "cinderApi",
-            "criteria": cinder
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "metadata",
-            "criteria": metadata
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "cindercheck",
-            "criteria": cicheck
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Sync",
-            "criteria": sync
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "SlaveIO",
-            "criteria": slaveio
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "SlaveSql",
-            "criteria": slavesql
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Mysql",
-            "criteria": mysql
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "OvsDB",
-            "criteria": ovsdb
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Rabbit",
-            "criteria": rabbit
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Nova",
-            "criteria": nova
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Neutron",
-            "criteria": neutron
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Memcached",
-            "criteria": memcached
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Glance-Registry",
-            "criteria": glanceregistry
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Glance-Api",
-            "criteria": glanceapi
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Neutron-Server",
-            "criteria": neutronserver
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Horizon",
-            "criteria": horizon
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "NoVncProxy",
-            "criteria": novncproxy
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "Kvm",
-            "criteria": kvm
-        })
-        cm.create_alarm(args.entity, {
-            "check_id": plugin_check_id,
-            "notification_plan_id": 'npManaged',
-            "label": "OvsSwitchd",
-            "criteria": ovsswitchd
-        })
+        if metrics.find('Cinder') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "cinderApi",
+                "criteria": cinder
+            })
+        if metrics.find('metadata') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "metadata",
+                "criteria": metadata
+            })
+        if metrics.find('CinderVGSize') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "cindercheck",
+                "criteria": cicheck
+            })
+        if metrics.find('Seconds_Behind_Master') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Sync",
+                "criteria": sync
+            })
+        if metrics.find('Slave_IO_Running') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "SlaveIO",
+                "criteria": slaveio
+            })
+        if metrics.find('Slave_SQL_Running') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "SlaveSql",
+                "criteria": slavesql
+            })
+        if metrics.find('Mysql') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Mysql",
+                "criteria": mysql
+            })
+        if metrics.find('OvsDB') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "OvsDB",
+                "criteria": ovsdb
+            })
+        if metrics.find('Rabbit') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Rabbit",
+                "criteria": rabbit
+            })
+        if metrics.find('Nova') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Nova",
+                "criteria": nova
+            })
+        if metrics.find('Neutron') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Neutron",
+                "criteria": neutron
+            })
+        if metrics.find('MemCached') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Memcached",
+                "criteria": memcached
+            })
+        if metrics.find('Glance-Registry') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Glance-Registry",
+                "criteria": glanceregistry
+            })
+        if metrics.find('Glance-Api') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Glance-Api",
+                "criteria": glanceapi
+            })
+        if metrics.find('NeutronServer') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Neutron-Server",
+                "criteria": neutronserver
+            })
+        if metrics.find('Horizon') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Horizon",
+                "criteria": horizon
+            })
+        if metrics.find('NoVncProxy') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "NoVncProxy",
+                "criteria": novncproxy
+            })
+        if metrics.find('Kvm') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "Kvm",
+                "criteria": kvm
+            })
+        if metrics.find('OvsSwitchd') != -1:
+            cm.create_alarm(args.entity, {
+                "check_id": plugin_check_id,
+                "notification_plan_id": 'npManaged',
+                "label": "OvsSwitchd",
+                "criteria": ovsswitchd
+            })
     except Exception as err:
         print ("Request Failed: Couldn't create OpenStack check " + str(err))
         raise

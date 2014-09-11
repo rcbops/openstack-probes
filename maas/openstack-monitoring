@@ -44,7 +44,7 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.34';
+my $version = '0.35';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
@@ -110,16 +110,16 @@ sub checkMetadata {
     my @dnsmasq = `/usr/bin/killall -s 1 dnsmasq 2>/dev/null`;
     my $thatsBad = 0;
     # -2 means no networks yet, but we need the place holder for MAAS
-    if (scalar @logicalAnd == 0) { push(@metrics, "metric metadata double -2\n");}
+    if (scalar @logicalAnd == 0) { push(@metrics, "metric metadata double -2\n");return;}
     foreach my $value (@logicalAnd) {
         $value =~ s/^\s*(.*?)\s*$/$1/;
         my @response = `/usr/bin/time -f "%e" ip netns exec qdhcp-$value curl -f -s 169.254.169.254 2>&1`;
         if ( $? ne "5632" ) { 
-            push(@metrics, "metric metadata double -1\n");
             $thatsBad = 1;
-        } else { push(@metrics, "metric metadata double $response[-1]"); } 
+        }
     }
     if ($thatsBad == 1){
+        push(@metrics, "metric metadata double -1\n");
         my @try = `pkill dnsmasq`;
         if ( $? != 0 ){
             return;
@@ -130,7 +130,7 @@ sub checkMetadata {
         if ( $? != 0 ){
             return
         }
-    }
+    } else { push(@metrics, "metric metadata double 0"); }
 }
 
 sub checkMaria {
@@ -200,7 +200,7 @@ sub checkNova {
 
 sub checkKeystone {
     my @data;
-    if (-e '/etc/keystone/keystone.conf' and -e '/etc/init.d/keystone-all' ){
+    if (-e '/etc/keystone/keystone.conf' and -e '/etc/init.d/keystone' ){
         @data = `/usr/bin/time -f "%e" /usr/bin/keystone --os-username $os_username --os-tenant-name $os_tenant --os-auth-url http://$host:5000/v2.0 --os-password $os_password token-get 2>&1`;
         if ($? != 0 || !@data) { push(@metrics, "metric Keystone double -1\n"); 
         } else { push(@metrics, "metric Keystone double $data[-1]");
