@@ -82,15 +82,12 @@ sub checkMemcached {
 sub checkMetadata {
     my @data;
     if (-e '/var/lib/neutron/dhcp'){ @data = `ls /var/lib/neutron/dhcp`; }
-    if (-e '/var/lib/quantum/dhcp'){ @data = `ls /var/lib/quantum/dhcp`; }
     chomp(@data);
     my @lsuuids;
     foreach my $str (@data) { if ( $str =~ /(^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$)/ ) { push(@lsuuids, lc($1)); } }
     my @data;
     if ( -e '/usr/bin/neutron') {
         @data = `/usr//bin/neutron --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
-    } else {
-        @data = `/usr/bin/quantum --os-username $os_username --os-tenant-name $os_tenant --os-auth-url $os_auth_url --os-password $os_password net-list 2>/dev/null`;
     }
     chomp(@data);
     my @netUuids;
@@ -107,14 +104,15 @@ sub checkMetadata {
             }
         }
     }
-    my @dnsmasq = `/usr/bin/killall -s 1 dnsmasq 2>/dev/null`;
     my $thatsBad = 0;
     # -2 means no networks yet, but we need the place holder for MAAS
     if (scalar @logicalAnd == 0) { push(@metrics, "metric metadata double -2\n");return;}
     foreach my $value (@logicalAnd) {
         $value =~ s/^\s*(.*?)\s*$/$1/;
-        my @response = `/usr/bin/time -f "%e" ip netns exec qdhcp-$value curl -f -s 169.254.169.254 2>&1`;
-        if ( $? ne "5632" ) { 
+        my @response = `ip netns exec qdhcp-$value curl -f 169.254.169.254 2>&1`;
+	my @result = split(':',$response[-1]);
+	$result[-1] =~ s/^\s*(.*?)\s*$/$1/;
+        if ( $result[-1] ne "404" ) { 
             $thatsBad = 1;
         }
     }
@@ -124,7 +122,6 @@ sub checkMetadata {
         if ( $? != 0 ){
             return;
         }
-        if ( -e '/etc/init.d/quantum-dhcp-agent' ){ @try = `/etc/init.d/quantum-dhcp-agent restart`; }
         if ( -e '/etc/init.d/neutron-dhcp-agent' ){ @try = `/etc/init.d/neutron-dhcp-agent restart`; }
         if ( -e '/lib/systemd/system/neutron-dhcp-agent.service' ){ @try = `systemctl restart neutron-dhcp-agent`; }
         if ( $? != 0 ){
