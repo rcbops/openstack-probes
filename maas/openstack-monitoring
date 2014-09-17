@@ -130,7 +130,7 @@ sub checkMetadata {
         if ( $? != 0 ){
             return
         }
-    } else { push(@metrics, "metric metadata double 0"); }
+    } else { push(@metrics, "metric metadata double 0\n"); }
 }
 
 sub checkMaria {
@@ -347,7 +347,7 @@ sub checkCinder {
         if ( -e '/etc/init.d/cinder-volume' || -e '/etc/init.d/openstack-cinder-volume' || -e '/lib/systemd/system/openstack-cinder-volume.service' ){
             $localApi = 0;
             my @vip = split('5000',$os_auth_url);
-            @data = `/usr/bin/time -f "%e" curl -f -s -i $vip[0]:8776/v1/$keystone_tenant/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $keystone_token" 2>&1`;
+            @data = `/usr/bin/time -f "%e" curl -f -s -i $vip[0]8776/v1/$keystone_tenant/os-services -X GET -H "X-Auth-Project-Id: admin" -H "User-Agent: nimbus" -H "Accept: application/xml" -H "X-Auth-Token: $keystone_token" 2>&1`;
         } else { return }
     }
     if ($? != 0 || !@data) {
