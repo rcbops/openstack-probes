@@ -44,7 +44,7 @@ use lib '/usr/lib/rackspace-monitoring-agent/plugins/lib';
 use IniFiles;
 use Time::HiRes
 
-my $version = '0.35';
+my $version = '0.40';
 
 sub checkOvs {
     if (-e '/usr/bin/ovsdb-client'){
@@ -324,10 +324,11 @@ sub checkNeutron {
             }
             for my $i (@service_list) {
                 while ( my ($key, $value) = each %{$i} ) {
-                    if ( $key =~ m/DHCP/){ checkMetadata() };
+                    $value =~ s/^\s*(.*?)\s*$/$1/;
                     $key =~ s/^\s*(.*?)\s*$/$1/;
                     $key =~s/ /-/g;
                     if ( $value eq 'XXX' || $value eq 'xxx' ) { push(@metrics, "metric $key string Down\n"); } else { push(@metrics, "metric $key string Up\n"); }
+                    if ( $key =~ m/DHCP/){ checkMetadata() };
                 }
             }
         }
