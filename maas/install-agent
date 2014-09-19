@@ -133,14 +133,14 @@ def link_agent_to_entity(cm, entity, account, device):
     return agent_id
 
 
-def dlfile():
-    gitUrl = ("https://github.com/rcbops/openstack-probes/"
-              "raw/master/maas/openstack-deploy")
-    f = urllib2.urlopen(gitUrl)
-    with open(
-            "/usr/lib/rackspace-monitoring-agent/plugins/openstack-deploy",
-            "wb") as local_file:
-        local_file.write(f.read())
+#def dlfile():
+#    gitUrl = ("https://github.com/rcbops/openstack-probes/"
+#              "raw/master/maas/openstack-deploy")
+#    f = urllib2.urlopen(gitUrl)
+#    with open(
+#            "/usr/lib/rackspace-monitoring-agent/plugins/openstack-deploy",
+#            "wb") as local_file:
+#        local_file.write(f.read())
 
 
 def get_agent_token(cm, agent_id):
@@ -177,12 +177,12 @@ def create_plugin_check():
         installDir = '/usr/lib/rackspace-monitoring-agent/plugins'
         if not os.path.isdir(installDir):
             os.makedirs(installDir)
-        dlfile()
-        param = ("/usr/lib/rackspace-monitoring-agent/plugins/"
-                 "openstack-deploy")
+        #dlfile()
+        #param = ("/usr/lib/rackspace-monitoring-agent/plugins/"
+                 #"openstack-deploy")
         workingDir = "/usr/lib/rackspace-monitoring-agent/plugins"
-        p = subprocess.Popen(["/bin/bash", param], cwd=workingDir)
-        p.wait()
+        #p = subprocess.Popen(["/bin/bash", param], cwd=workingDir)
+        #p.wait()
         param = ("/usr/lib/rackspace-monitoring-agent/plugins/"
                  "openstack-monitoring")
         p = subprocess.Popen(["/usr/bin/perl", param], cwd=workingDir,
