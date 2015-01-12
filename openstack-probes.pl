@@ -28,7 +28,7 @@ use IniFiles;
 $| = 1;
 
 my $prgname = 'openstack-probes';
-my $version = '0.24';
+my $version = '0.25';
 my $sub_sys = '1.1.1';
 my $config;
 my %options;
@@ -77,6 +77,7 @@ sub blackAndWhite {
         when (/^SwiftAccountConnection/) { $logMessage = "Something is wrong!!! Local Swift Account-Server did not respond correctly." }
         when (/^SwiftContainerConnection/) { $logMessage = "Something is wrong!!! Local Swift Container-Server did not respond correctly." }
         when (/^SwiftObjectConnection/) { $logMessage = "Something is wrong!!! Local Swift Object-Server did not respond correctly." }
+        when (/^RPCDaemonNotRunning/) { $logMessage = "Something is wrong!!! RPCDaemon process could not be found. Is it installed and running?" }
         Default: { $logMessage = "Something is really wrong!!!" }
     }
     if (!defined($config->{'status'}->{$message}->{'samples'})){$config->{'status'}->{$message}->{'samples'} = 0;};
@@ -120,6 +121,20 @@ sub checkOvs {
         } else {
                 nimLog(1, "OVS NOT detected. Skipping...");
         }
+}
+
+sub checkRpcDaemon {
+  if (defined($config->{'setup'}->{'rpcdaemon_process_name'}) && ($config->{'setup'}->{'rpcdaemon_process_name'} ne '')) {
+    nimLog(1, "Checking rpcdaemon status...");
+    my @data = `pgrep rpcdaemon`;
+    if ( $? != 0 || !@data ){
+      blackAndWhite("RPCDaemonNotRunning",1);
+    } else {
+      blackAndWhite("RPCDaemonNotRunning",0);
+    }
+  } else {
+    nimLog(1, "RPCDaemon process name not defined. Skipping...");
+  }
 }
 
 sub checkHorizon {
@@ -669,6 +684,7 @@ sub timeout {
     checkKvm();
     checkHorizon();
     checkSwift();
+    checkRpcDaemon();
 }
 
 sub checkMysql {
